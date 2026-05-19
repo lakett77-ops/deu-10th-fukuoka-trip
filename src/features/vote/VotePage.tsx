@@ -5,7 +5,7 @@ import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
 import type { PlaceDetail, TravelAppData, VoteCandidate, VoteCategory, VoteTopic } from "../../types";
 import { createId } from "../../utils/id";
-import { PLACE_SEARCH_PRESETS, searchPlaceDetails } from "../../utils/placeDetails";
+import { PLACE_SEARCH_PRESETS, searchPlaceDetails, type PlaceSearchMode } from "../../utils/placeDetails";
 
 interface VotePageProps {
   data: TravelAppData;
@@ -22,6 +22,8 @@ const categories: VoteCategory[] = [
   "쇼핑 장소 후보",
 ];
 
+const FOOD_TOPIC_CATEGORIES = new Set<VoteCategory>(["라멘/식당 후보", "이자카야/술집 후보", "카페 후보"]);
+
 const emptyTopic: Omit<VoteTopic, "id"> = {
   title: "",
   description: "",
@@ -34,6 +36,14 @@ const formatPlaceType = (detail: PlaceDetail) =>
   [detail.category, detail.type].filter(Boolean).join(" / ") || "정보 없음";
 
 const formatCoord = (value: number) => value.toFixed(5);
+
+const getSearchModeForTopic = (category?: VoteCategory | null): PlaceSearchMode =>
+  category && FOOD_TOPIC_CATEGORIES.has(category) ? "food" : "all";
+
+const getSearchEmptyMessage = (mode: PlaceSearchMode) =>
+  mode === "food"
+    ? "음식점만 검색했는데 결과가 없어요. 가게 이름을 더 정확히 적거나 Fukuoka를 붙여 보세요."
+    : "검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.";
 
 function SearchPresetChips({ onPick }: { onPick: (query: string) => void }) {
   return (
@@ -168,11 +178,13 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
   const [topicForm, setTopicForm] = useState<Omit<VoteTopic, "id">>(emptyTopic);
   const [candidateTitle, setCandidateTitle] = useState("");
   const [placeAddTopicId, setPlaceAddTopicId] = useState<string | null>(null);
+  const [placeAddSearchMode, setPlaceAddSearchMode] = useState<PlaceSearchMode>("all");
   const [placeAddQuery, setPlaceAddQuery] = useState("");
   const [placeAddResults, setPlaceAddResults] = useState<PlaceDetail[]>([]);
   const [placeAddLoading, setPlaceAddLoading] = useState(false);
   const [placeAddError, setPlaceAddError] = useState("");
   const [placeModalTarget, setPlaceModalTarget] = useState<{ topicId: string; candidateId: string } | null>(null);
+  const [placeSearchMode, setPlaceSearchMode] = useState<PlaceSearchMode>("all");
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceDetail[]>([]);
   const [placeLoading, setPlaceLoading] = useState(false);
@@ -292,20 +304,22 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     const topic = data.votes.find((item) => item.id === topicId);
     const candidate = topic?.candidates.find((item) => item.id === candidateId);
     const initialQuery = candidate?.placeDetail?.query || candidate?.title || "";
+    const searchMode = getSearchModeForTopic(topic?.category);
     const requestId = ++placeSearchRequestId.current;
 
     setPlaceModalTarget({ topicId, candidateId });
+    setPlaceSearchMode(searchMode);
     setPlaceQuery(initialQuery);
     setPlaceResults([]);
     setPlaceError("");
     setPlaceLoading(true);
 
     try {
-      const results = await searchPlaceDetails(initialQuery);
+      const results = await searchPlaceDetails(initialQuery, { mode: searchMode });
       if (placeSearchRequestId.current !== requestId) return;
       setPlaceResults(results);
       if (!results.length) {
-        setPlaceError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+        setPlaceError(getSearchEmptyMessage(searchMode));
       }
     } catch (error) {
       if (placeSearchRequestId.current !== requestId) return;
@@ -335,11 +349,11 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceError("");
 
     try {
-      const results = await searchPlaceDetails(query);
+      const results = await searchPlaceDetails(query, { mode: placeSearchMode });
       if (placeSearchRequestId.current !== requestId) return;
       setPlaceResults(results);
       if (!results.length) {
-        setPlaceError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+        setPlaceError(getSearchEmptyMessage(placeSearchMode));
       }
     } catch (error) {
       if (placeSearchRequestId.current !== requestId) return;
@@ -384,7 +398,9 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
   };
 
   const openPlaceAddModal = (topicId: string) => {
+    const topic = data.votes.find((item) => item.id === topicId);
     setPlaceAddTopicId(topicId);
+    setPlaceAddSearchMode(getSearchModeForTopic(topic?.category));
     setPlaceAddQuery("");
     setPlaceAddResults([]);
     setPlaceAddError("");
@@ -418,11 +434,11 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceAddError("");
 
     try {
-      const results = await searchPlaceDetails(query);
+      const results = await searchPlaceDetails(query, { mode: placeAddSearchMode });
       if (placeAddSearchRequestId.current !== requestId) return;
       setPlaceAddResults(results);
       if (!results.length) {
-        setPlaceAddError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+        setPlaceAddError(getSearchEmptyMessage(placeAddSearchMode));
       }
     } catch (error) {
       if (placeAddSearchRequestId.current !== requestId) return;
@@ -775,6 +791,12 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             나오면 <span className="font-bold text-slate-900">Fukuoka</span>를 붙여 다시 검색해 보세요.
           </p>
 
+          {placeSearchMode === "food" && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+              음식점만 검색 중이에요. 가게가 아닌 결과는 아예 빼고 보여줍니다.
+            </div>
+          )}
+
           <SearchPresetChips
             onPick={(query) => {
               void runPlaceSearch(undefined, query);
@@ -890,6 +912,12 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             한글로 후보 이름을 적어도 되고, 아래 빠른 버튼을 눌러도 돼요. 카카오톡 투표처럼 옵션부터 빠르게 만들고, 필요하면 나중에
             상세를 덧붙여도 됩니다.
           </p>
+
+          {placeAddSearchMode === "food" && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+              음식점만 검색 중이에요. 후보를 추가할 때도 음식점 결과만 남깁니다.
+            </div>
+          )}
 
           <SearchPresetChips
             onPick={(query) => {

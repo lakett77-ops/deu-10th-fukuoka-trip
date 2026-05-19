@@ -19,6 +19,14 @@ interface NominatimResult {
 }
 
 const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
+const FUKUOKA_VIEWBOX = {
+  west: 130.05,
+  south: 33.3,
+  east: 130.75,
+  north: 33.9,
+};
+
+export type PlaceSearchMode = "all" | "food";
 
 export const PLACE_SEARCH_PRESETS = [
   { label: "신신라멘", query: "신신라멘" },
@@ -66,7 +74,30 @@ const stripGenericSuffixes = (value: string) =>
     .replace(/\s*(가게|맛집|식당|술집|카페|공원|해변|호텔|숙소|본점|지점|라멘|라면|이자카야|쇼핑몰|백화점|시장|포장마차)$/u, "")
     .trim();
 
-const buildSearchQueries = (query: string) => {
+const FOOD_PLACE_TYPES = new Set([
+  "restaurant",
+  "cafe",
+  "fast_food",
+  "bar",
+  "pub",
+  "food_court",
+  "ice_cream",
+  "biergarten",
+  "restaurant;ramen",
+]);
+
+const isFoodPlace = (result: Pick<PlaceDetail, "category" | "type">) => {
+  const category = result.category.toLowerCase();
+  const type = result.type.toLowerCase();
+
+  if (category === "amenity" && FOOD_PLACE_TYPES.has(type)) {
+    return true;
+  }
+
+  return category === "tourism" && type === "restaurant";
+};
+
+const buildSearchQueries = (query: string, mode: PlaceSearchMode) => {
   const trimmed = query.trim();
   const queries = new Set<string>();
   const add = (value: string) => {
@@ -125,6 +156,13 @@ const buildSearchQueries = (query: string) => {
   if (!/fukuoka/i.test(trimmed)) {
     add(`${trimmed} Fukuoka`);
     add(`${trimmed} Fukuoka Japan`);
+  }
+
+  if (mode === "food") {
+    add(`${trimmed} [restaurant]`);
+    add(`${trimmed} [cafe]`);
+    add(`${trimmed} [bar]`);
+    add(`${trimmed} [pub]`);
   }
 
   return Array.from(queries);
@@ -212,6 +250,8 @@ const fetchSearchResults = async (query: string) => {
     namedetails: "1",
     limit: "8",
     countrycodes: "jp",
+    viewbox: `${FUKUOKA_VIEWBOX.west},${FUKUOKA_VIEWBOX.south},${FUKUOKA_VIEWBOX.east},${FUKUOKA_VIEWBOX.north}`,
+    bounded: "1",
     "accept-language": "ko,en",
   });
 
@@ -237,18 +277,21 @@ const fetchSearchResults = async (query: string) => {
   }
 };
 
-export async function searchPlaceDetails(query: string): Promise<PlaceDetail[]> {
-  const queries = buildSearchQueries(query);
+export async function searchPlaceDetails(query: string, options: { mode?: PlaceSearchMode } = {}): Promise<PlaceDetail[]> {
+  const mode = options.mode ?? "all";
+  const queries = buildSearchQueries(query, mode);
   let fallback: PlaceDetail[] = [];
 
   for (const item of queries) {
     const results = await fetchSearchResults(item);
     const normalized = results.map((result) => normalizeResult(result, query));
-    if (!fallback.length && normalized.length) {
-      fallback = normalized;
+    const filtered = mode === "food" ? normalized.filter((result) => isFoodPlace(result)) : normalized;
+
+    if (!fallback.length && filtered.length) {
+      fallback = filtered;
     }
 
-    const preferred = normalized.filter((result) => result.countryCode === "jp");
+    const preferred = filtered.filter((result) => result.countryCode === "jp");
     if (preferred.length) {
       return preferred;
     }
