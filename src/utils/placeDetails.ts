@@ -1,4 +1,5 @@
 import { searchGooglePlaceDetails } from "./googlePlaces";
+import { searchFukuokaPlaceCatalog } from "./fukuokaPlaceCatalog";
 import type { PlaceDetail } from "../types";
 
 interface NominatimResult {
@@ -284,16 +285,33 @@ export async function searchPlaceDetails(
   options: { mode?: PlaceSearchMode; googleMapsApiKey?: string } = {},
 ): Promise<PlaceDetail[]> {
   const mode = options.mode ?? "all";
-  const googleResults = await searchGooglePlaceDetails(query, { mode, apiKey: options.googleMapsApiKey });
-  if (googleResults?.length) {
-    return googleResults;
+  const catalogResults = searchFukuokaPlaceCatalog(query, mode);
+
+  try {
+    const googleResults = await searchGooglePlaceDetails(query, { mode, apiKey: options.googleMapsApiKey });
+    if (googleResults?.length) {
+      return googleResults;
+    }
+  } catch {
+    // Google Places가 키 제한이나 네트워크 문제로 실패해도 기본 후보와 OSM 검색을 계속 사용합니다.
+  }
+
+  if (catalogResults.length) {
+    return catalogResults;
   }
 
   const queries = buildSearchQueries(query, mode);
   let fallback: PlaceDetail[] = [];
 
   for (const item of queries) {
-    const results = await fetchSearchResults(item);
+    let results: NominatimResult[] = [];
+
+    try {
+      results = await fetchSearchResults(item);
+    } catch {
+      continue;
+    }
+
     const normalized = results.map((result) => normalizeResult(result, query));
     const filtered = mode === "food" ? normalized.filter((result) => isFoodPlace(result)) : normalized;
 

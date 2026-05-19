@@ -277,8 +277,13 @@ const loadGoogleMapsPlacesApi = async (apiKey: string) => {
     script.id = GOOGLE_MAPS_SCRIPT_ID;
     script.async = true;
     script.defer = true;
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, 8000);
 
     const cleanup = () => {
+      window.clearTimeout(timeoutId);
       delete currentWindow.__codexGoogleMapsInit__;
       script.onerror = null;
     };

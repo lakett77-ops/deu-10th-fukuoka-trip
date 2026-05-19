@@ -37,7 +37,11 @@ const formatPlaceType = (detail: PlaceDetail) =>
 
 const formatCoord = (value: number) => value.toFixed(5);
 
-const getPlaceSourceLabel = (detail: PlaceDetail) => (detail.source === "google" ? "Google Places" : "OpenStreetMap / Nominatim");
+const getPlaceSourceLabel = (detail: PlaceDetail) => {
+  if (detail.source === "google") return "Google Places";
+  if (detail.source === "catalog") return "후쿠오카 기본 후보";
+  return "OpenStreetMap / Nominatim";
+};
 
 const getSearchModeForTopic = (category?: VoteCategory | null): PlaceSearchMode =>
   category && FOOD_TOPIC_CATEGORIES.has(category) ? "food" : "all";
@@ -531,7 +535,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             <p className="text-sm font-black text-slate-900">투표와 지도 연결</p>
             <p className="mt-1 text-sm text-slate-600">
               후보 카드를 누르면 바로 투표되고, 후보 추가에서는 직접 입력이나 지도 검색을 바로 고를 수 있어요. Google Places를 우선으로
-              검색하고, 키가 없거나 실패하면 OpenStreetMap으로 자동 전환해요.
+              검색하고, 키가 없거나 실패하면 후쿠오카 기본 후보와 OpenStreetMap으로 자동 전환해요.
             </p>
           </div>
         </div>

@@ -111,7 +111,7 @@ export interface PreflightCheckItem {
 }
 
 export interface PlaceDetail {
-  source?: "google" | "osm";
+  source?: "google" | "osm" | "catalog";
   query: string;
   name: string;
   displayName: string;
