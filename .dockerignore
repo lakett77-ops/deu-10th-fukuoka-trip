@@ -1,0 +1,17 @@
+node_modules
+dist
+yjs-db
+yjs-prod-db
+.git
+.github
+.cf.err.log
+.cf.out.log
+.share.err.log
+.share.out.log
+.tunnel.err.log
+.tunnel.out.log
+.vite.err.log
+.vite.out.log
+.yjs.err.log
+.yjs.out.log
+*.png
