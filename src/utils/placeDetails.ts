@@ -20,20 +20,51 @@ interface NominatimResult {
 
 const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
 
+export const PLACE_SEARCH_PRESETS = [
+  { label: "신신라멘", query: "신신라멘" },
+  { label: "이치란", query: "이치란" },
+  { label: "멘타이쥬", query: "멘타이쥬" },
+  { label: "나카스 포장마차", query: "나카스 포장마차" },
+  { label: "텐진 이자카야", query: "텐진 이자카야" },
+  { label: "다자이후", query: "다자이후" },
+  { label: "모모치해변", query: "모모치해변" },
+  { label: "캐널시티", query: "캐널시티" },
+  { label: "돈키호테", query: "돈키호테" },
+  { label: "오호리공원", query: "오호리공원" },
+];
+
 const SEARCH_ALIASES: Record<string, string[]> = {
-  신신라멘: ["Shin Shin", "Hakata Ramen Shin Shin"],
-  이치란: ["Ichiran", "Ichiran Ramen"],
-  멘타이쥬: ["Mentaiju", "Mentai Jyu"],
-  나카스포장마차: ["Nakasu Yatai", "Nakasu Food Stalls"],
-  텐진이자카야: ["Tenjin Izakaya"],
-  다자이후: ["Dazaifu", "Dazaifu Tenmangu"],
-  모모치해변: ["Momochi Seaside Park", "Momochihama"],
-  캐널시티: ["Canal City Hakata", "Canal City"],
-  돈키호테: ["Don Quijote", "Don Quixote"],
-  오호리공원: ["Ohori Park", "Ohorikoen"],
+  신신: ["신신라멘", "Shin Shin", "Hakata Ramen Shin Shin", "博多らーめんShinShin"],
+  신신라멘: ["신신", "Shin Shin", "Hakata Ramen Shin Shin", "博多らーめんShinShin"],
+  신신라멘하카타: ["신신라멘", "신신", "Shin Shin", "Hakata Ramen Shin Shin", "博多らーめんShinShin"],
+  이치란: ["이치란 라멘", "Ichiran", "Ichiran Ramen", "一蘭"],
+  이치란하카타: ["이치란", "이치란 라멘", "Ichiran", "Ichiran Ramen", "一蘭"],
+  멘타이쥬: ["명란덮밥", "Mentaiju", "Mentai Jyu"],
+  나카스: ["나카스 포장마차", "Nakasu Yatai", "Nakasu Food Stalls"],
+  나카스포장마차: ["나카스", "Nakasu Yatai", "Nakasu Food Stalls"],
+  텐진: ["텐진 이자카야", "Tenjin Izakaya"],
+  텐진이자카야: ["텐진", "Tenjin Izakaya"],
+  다자이후: ["Dazaifu", "Dazaifu Tenmangu", "太宰府"],
+  다자이후텐만구: ["다자이후", "Dazaifu", "Dazaifu Tenmangu", "太宰府"],
+  모모치: ["모모치해변", "Momochi Seaside Park", "Momochihama"],
+  모모치해변: ["모모치", "Momochi Seaside Park", "Momochihama"],
+  캐널: ["캐널시티", "Canal City Hakata", "Canal City"],
+  캐널시티: ["캐널", "Canal City Hakata", "Canal City"],
+  캐널시티하카타: ["캐널시티", "캐널", "Canal City Hakata", "Canal City"],
+  돈키호테: ["Don Quijote", "Don Quixote", "ドン・キホーテ"],
+  오호리: ["오호리공원", "Ohori Park", "Ohorikoen", "大濠公園"],
+  오호리공원: ["오호리", "Ohori Park", "Ohorikoen", "大濠公園"],
+  오호리공원후쿠오카: ["오호리공원", "오호리", "Ohori Park", "Ohorikoen", "大濠公園"],
+  모모치해변후쿠오카: ["모모치해변", "모모치", "Momochi Seaside Park", "Momochihama"],
 };
 
-const normalizeQueryKey = (value: string) => value.replace(/\s+/g, "").trim();
+const normalizeQueryKey = (value: string) => value.toLowerCase().replace(/[\s\-_.,"'()·/]+/g, "").trim();
+
+const stripGenericSuffixes = (value: string) =>
+  value
+    .trim()
+    .replace(/\s*(가게|맛집|식당|술집|카페|공원|해변|호텔|숙소|본점|지점|라멘|라면|이자카야|쇼핑몰|백화점|시장|포장마차)$/u, "")
+    .trim();
 
 const buildSearchQueries = (query: string) => {
   const trimmed = query.trim();
@@ -44,14 +75,51 @@ const buildSearchQueries = (query: string) => {
   };
 
   add(trimmed);
+  add(stripGenericSuffixes(trimmed));
 
   const aliasKey = normalizeQueryKey(trimmed);
-  const aliases = SEARCH_ALIASES[aliasKey] ?? [];
+  const strippedAliasKey = normalizeQueryKey(stripGenericSuffixes(trimmed));
+  const aliases = [...(SEARCH_ALIASES[aliasKey] ?? []), ...(SEARCH_ALIASES[strippedAliasKey] ?? [])];
 
   for (const alias of aliases) {
     add(alias);
     add(`${alias} Fukuoka`);
     add(`${alias} Fukuoka Japan`);
+  }
+
+  if (/(라멘|ramen)/i.test(trimmed)) {
+    add("Shin Shin Fukuoka");
+    add("Ichiran Fukuoka");
+    add("Hakata ramen Fukuoka");
+  }
+
+  if (/(이자카야|술집|izakaya)/i.test(trimmed)) {
+    add("Tenjin Izakaya");
+    add("Nakasu Yatai");
+    add("Fukuoka izakaya");
+  }
+
+  if (/(카페|cafe)/i.test(trimmed)) {
+    add("Fukuoka cafe");
+    add("Tenjin cafe");
+  }
+
+  if (/(공원|park)/i.test(trimmed)) {
+    add("Ohori Park");
+    add("Dazaifu Tenmangu");
+  }
+
+  if (/(해변|beach)/i.test(trimmed)) {
+    add("Momochi Seaside Park");
+  }
+
+  if (/(쇼핑|면세|돈키|donki)/i.test(trimmed)) {
+    add("Don Quijote Fukuoka");
+    add("Canal City Hakata");
+  }
+
+  if (/(다자이후|temmangu|dazaifu)/i.test(trimmed)) {
+    add("Dazaifu Tenmangu");
   }
 
   if (!/fukuoka/i.test(trimmed)) {

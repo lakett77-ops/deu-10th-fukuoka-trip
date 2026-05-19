@@ -5,7 +5,7 @@ import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
 import type { PlaceDetail, TravelAppData, VoteCandidate, VoteCategory, VoteTopic } from "../../types";
 import { createId } from "../../utils/id";
-import { searchPlaceDetails } from "../../utils/placeDetails";
+import { PLACE_SEARCH_PRESETS, searchPlaceDetails } from "../../utils/placeDetails";
 
 interface VotePageProps {
   data: TravelAppData;
@@ -34,6 +34,26 @@ const formatPlaceType = (detail: PlaceDetail) =>
   [detail.category, detail.type].filter(Boolean).join(" / ") || "정보 없음";
 
 const formatCoord = (value: number) => value.toFixed(5);
+
+function SearchPresetChips({ onPick }: { onPick: (query: string) => void }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold text-slate-500">한글로 바로 검색</p>
+      <div className="flex flex-wrap gap-2">
+        {PLACE_SEARCH_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            type="button"
+            onClick={() => onPick(preset.query)}
+            className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700"
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
@@ -297,14 +317,18 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     }
   };
 
-  const runPlaceSearch = async (event?: FormEvent) => {
+  const runPlaceSearch = async (event?: FormEvent, queryOverride?: string) => {
     event?.preventDefault();
-    const query = placeQuery.trim();
+    const query = (queryOverride ?? placeQuery).trim();
     const requestId = ++placeSearchRequestId.current;
     if (!query) {
       setPlaceResults([]);
       setPlaceError("검색어를 입력해 주세요.");
       return;
+    }
+
+    if (queryOverride !== undefined) {
+      setPlaceQuery(query);
     }
 
     setPlaceLoading(true);
@@ -376,14 +400,18 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceAddLoading(false);
   };
 
-  const runPlaceAddSearch = async (event?: FormEvent) => {
+  const runPlaceAddSearch = async (event?: FormEvent, queryOverride?: string) => {
     event?.preventDefault();
-    const query = placeAddQuery.trim();
+    const query = (queryOverride ?? placeAddQuery).trim();
     const requestId = ++placeAddSearchRequestId.current;
     if (!query) {
       setPlaceAddResults([]);
       setPlaceAddError("검색어를 입력해 주세요.");
       return;
+    }
+
+    if (queryOverride !== undefined) {
+      setPlaceAddQuery(query);
     }
 
     setPlaceAddLoading(true);
@@ -743,9 +771,15 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
       >
         <div className="space-y-3">
           <p className="text-sm leading-6 text-slate-600">
-            후보 이름이나 영문 가게명을 검색하면 주소, 전화, 영업시간, 지도 링크까지 붙일 수 있어요.
-            잘 안 나오면 <span className="font-bold text-slate-900">Fukuoka</span>를 붙여 다시 검색해 보세요.
+            후보 이름을 한글로 그대로 넣어도 되고, 아래 빠른 버튼을 눌러도 돼요. 주소, 전화, 영업시간, 지도 링크까지 붙일 수 있고 잘 안
+            나오면 <span className="font-bold text-slate-900">Fukuoka</span>를 붙여 다시 검색해 보세요.
           </p>
+
+          <SearchPresetChips
+            onPick={(query) => {
+              void runPlaceSearch(undefined, query);
+            }}
+          />
 
           {placeTargetCandidate?.candidate?.placeDetail && (
             <div className="rounded-lg border border-teal-100 bg-teal-50/60 p-3">
@@ -761,7 +795,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
               <input
                 value={placeQuery}
                 onChange={(event) => setPlaceQuery(event.target.value)}
-                placeholder="예: Shin Shin, Ichiran, Canal City Hakata"
+                placeholder="예: 신신라멘, 이치란, 캐널시티 하카타"
                 className="mt-1 h-12 w-full rounded-lg border border-slate-200 px-3"
               />
             </label>
@@ -853,9 +887,15 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
       <Modal title="지도 검색으로 후보 추가" open={Boolean(placeAddTopicId)} onClose={closePlaceAddModal}>
         <div className="space-y-3">
           <p className="text-sm leading-6 text-slate-600">
-            지도에서 가게를 검색하면 후보 이름과 상세정보를 한 번에 넣을 수 있어요. 카카오톡 투표처럼 옵션부터 빠르게 만들고, 필요하면
-            나중에 상세를 덧붙여도 됩니다.
+            한글로 후보 이름을 적어도 되고, 아래 빠른 버튼을 눌러도 돼요. 카카오톡 투표처럼 옵션부터 빠르게 만들고, 필요하면 나중에
+            상세를 덧붙여도 됩니다.
           </p>
+
+          <SearchPresetChips
+            onPick={(query) => {
+              void runPlaceAddSearch(undefined, query);
+            }}
+          />
 
           <form onSubmit={runPlaceAddSearch} className="space-y-3">
             <label className="block">
@@ -863,7 +903,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
               <input
                 value={placeAddQuery}
                 onChange={(event) => setPlaceAddQuery(event.target.value)}
-                placeholder="예: Shin Shin Fukuoka, Ichiran, Canal City Hakata"
+                placeholder="예: 신신라멘, 이치란, 캐널시티 하카타"
                 className="mt-1 h-12 w-full rounded-lg border border-slate-200 px-3"
               />
             </label>
