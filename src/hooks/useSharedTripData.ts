@@ -15,6 +15,26 @@ type TripRow = {
   updated_at: string;
 };
 
+const isTripData = (value: unknown): value is TravelAppData => {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<TravelAppData>;
+  return Boolean(
+    candidate.settings &&
+      Array.isArray(candidate.participants) &&
+      Array.isArray(candidate.participantMessages) &&
+      Array.isArray(candidate.schedules) &&
+      Array.isArray(candidate.expenses) &&
+      Array.isArray(candidate.preflightChecks) &&
+      Array.isArray(candidate.checklists) &&
+      Array.isArray(candidate.votes) &&
+      Array.isArray(candidate.memories) &&
+      Array.isArray(candidate.memberCards) &&
+      Array.isArray(candidate.photoLinks) &&
+      Array.isArray(candidate.photoLibrary),
+  );
+};
+
 const getCloudConfig = () => {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim();
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -108,7 +128,7 @@ export function useSharedTripData() {
 
         if (cancelled) return;
 
-        if (remoteRow?.payload) {
+        if (remoteRow?.payload && isTripData(remoteRow.payload)) {
           const remoteSerialized = serialize(remoteRow.payload);
           lastPublishedRef.current = remoteSerialized;
           lastRemoteUpdatedAtRef.current = remoteRow.updated_at;
@@ -133,7 +153,7 @@ export function useSharedTripData() {
           void (async () => {
             try {
               const latestRow = await readRemoteRow(config);
-              if (!latestRow?.payload) return;
+              if (!latestRow?.payload || !isTripData(latestRow.payload)) return;
 
               const latestSerialized = serialize(latestRow.payload);
               if (latestRow.updated_at === lastRemoteUpdatedAtRef.current) {
