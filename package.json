@@ -13,20 +13,21 @@
     "share": "node scripts/start-tunnel.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@y/websocket-server": "^0.1.5",
     "autoprefixer": "^10.4.21",
+    "level": "^10.0.0",
     "localtunnel": "^2.0.2",
     "lucide-react": "^0.468.0",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "level": "^10.0.0",
-    "ws": "^8.18.3",
     "tailwindcss": "^3.4.17",
     "tunnelmole": "^2.4.0",
     "typescript": "^5.6.3",
     "vite": "^6.0.5",
+    "ws": "^8.18.3",
     "y-webrtc": "^10.3.0",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30"
