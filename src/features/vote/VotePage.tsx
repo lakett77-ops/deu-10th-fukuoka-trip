@@ -147,12 +147,18 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
   const [candidateTopicId, setCandidateTopicId] = useState<string | null>(null);
   const [topicForm, setTopicForm] = useState<Omit<VoteTopic, "id">>(emptyTopic);
   const [candidateTitle, setCandidateTitle] = useState("");
+  const [placeAddTopicId, setPlaceAddTopicId] = useState<string | null>(null);
+  const [placeAddQuery, setPlaceAddQuery] = useState("");
+  const [placeAddResults, setPlaceAddResults] = useState<PlaceDetail[]>([]);
+  const [placeAddLoading, setPlaceAddLoading] = useState(false);
+  const [placeAddError, setPlaceAddError] = useState("");
   const [placeModalTarget, setPlaceModalTarget] = useState<{ topicId: string; candidateId: string } | null>(null);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceDetail[]>([]);
   const [placeLoading, setPlaceLoading] = useState(false);
   const [placeError, setPlaceError] = useState("");
   const placeSearchRequestId = useRef(0);
+  const placeAddSearchRequestId = useRef(0);
 
   const participantById = useMemo(
     () => new Map(data.participants.map((participant) => [participant.id, participant])),
@@ -353,6 +359,63 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceLoading(false);
   };
 
+  const openPlaceAddModal = (topicId: string) => {
+    setPlaceAddTopicId(topicId);
+    setPlaceAddQuery("");
+    setPlaceAddResults([]);
+    setPlaceAddError("");
+    setPlaceAddLoading(false);
+  };
+
+  const closePlaceAddModal = () => {
+    placeAddSearchRequestId.current += 1;
+    setPlaceAddTopicId(null);
+    setPlaceAddQuery("");
+    setPlaceAddResults([]);
+    setPlaceAddError("");
+    setPlaceAddLoading(false);
+  };
+
+  const runPlaceAddSearch = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const query = placeAddQuery.trim();
+    const requestId = ++placeAddSearchRequestId.current;
+    if (!query) {
+      setPlaceAddResults([]);
+      setPlaceAddError("검색어를 입력해 주세요.");
+      return;
+    }
+
+    setPlaceAddLoading(true);
+    setPlaceAddError("");
+
+    try {
+      const results = await searchPlaceDetails(query);
+      if (placeAddSearchRequestId.current !== requestId) return;
+      setPlaceAddResults(results);
+      if (!results.length) {
+        setPlaceAddError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+      }
+    } catch (error) {
+      if (placeAddSearchRequestId.current !== requestId) return;
+      setPlaceAddResults([]);
+      setPlaceAddError(error instanceof Error ? error.message : "가게 검색에 실패했어요.");
+    } finally {
+      if (placeAddSearchRequestId.current !== requestId) return;
+      setPlaceAddLoading(false);
+    }
+  };
+
+  const addPlaceCandidate = (detail: PlaceDetail) => {
+    if (!placeAddTopicId) return;
+
+    updateTopicCandidates(placeAddTopicId, (candidates) => [
+      ...candidates,
+      { id: createId("candidate"), title: detail.name, voterIds: [], placeDetail: detail },
+    ]);
+    closePlaceAddModal();
+  };
+
   return (
     <div className="space-y-4">
       <header className="flex items-start justify-between gap-3">
@@ -420,7 +483,8 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
           <div className="min-w-0">
             <p className="text-sm font-black text-slate-900">투표와 지도 연결</p>
             <p className="mt-1 text-sm text-slate-600">
-              옵션을 누르면 바로 투표되고, 아래 가게 검색 버튼으로 OpenStreetMap / Nominatim 공개 API에서 주소, 전화, 영업시간, 지도를 붙일 수 있어요.
+              후보 카드를 누르면 바로 투표되고, 후보 추가에서는 직접 입력이나 지도 검색을 바로 고를 수 있어요. 가게 검색 버튼으로
+              OpenStreetMap / Nominatim 공개 API에서 주소, 전화, 영업시간, 지도를 붙일 수 있어요.
             </p>
           </div>
         </div>
@@ -574,7 +638,25 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                       );
                     })
                   ) : (
-                    <EmptyState icon="🏮" title="후보가 없어요" description="신신라멘, 이치란, 다자이후 같은 후보를 추가해보세요." />
+                    <div className="space-y-3">
+                      <EmptyState icon="🏮" title="후보가 없어요" description="신신라멘, 이치란, 다자이후 같은 후보를 추가해보세요." />
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setCandidateTopicId(topic.id)}
+                          className="h-11 rounded-lg bg-slate-900 font-black text-white"
+                        >
+                          후보 직접 추가
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPlaceAddModal(topic.id)}
+                          className="h-11 rounded-lg bg-teal-500 font-black text-white"
+                        >
+                          지도 검색으로 후보 추가
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -584,13 +666,22 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                   </p>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setCandidateTopicId(topic.id)}
-                  className="mt-3 h-11 w-full rounded-lg bg-slate-900 font-black text-white"
-                >
-                  후보 추가
-                </button>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setCandidateTopicId(topic.id)}
+                    className="h-11 rounded-lg bg-slate-900 font-black text-white"
+                  >
+                    후보 직접 추가
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openPlaceAddModal(topic.id)}
+                    className="h-11 rounded-lg bg-teal-500 font-black text-white"
+                  >
+                    지도 검색으로 후보 추가
+                  </button>
+                </div>
               </Card>
             );
           })}
@@ -753,6 +844,94 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                 icon="🏮"
                 title="검색 결과를 기다리는 중"
                 description="검색 버튼을 눌러 가게 상세를 불러와보세요."
+              />
+            )
+          )}
+        </div>
+      </Modal>
+
+      <Modal title="지도 검색으로 후보 추가" open={Boolean(placeAddTopicId)} onClose={closePlaceAddModal}>
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-slate-600">
+            지도에서 가게를 검색하면 후보 이름과 상세정보를 한 번에 넣을 수 있어요. 카카오톡 투표처럼 옵션부터 빠르게 만들고, 필요하면
+            나중에 상세를 덧붙여도 됩니다.
+          </p>
+
+          <form onSubmit={runPlaceAddSearch} className="space-y-3">
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">검색어</span>
+              <input
+                value={placeAddQuery}
+                onChange={(event) => setPlaceAddQuery(event.target.value)}
+                placeholder="예: Shin Shin Fukuoka, Ichiran, Canal City Hakata"
+                className="mt-1 h-12 w-full rounded-lg border border-slate-200 px-3"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={placeAddLoading}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-teal-500 font-black text-white disabled:opacity-70"
+            >
+              {placeAddLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+              지도에서 찾기
+            </button>
+          </form>
+
+          {placeAddError && <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{placeAddError}</div>}
+
+          {placeAddLoading && (
+            <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm font-bold text-slate-600">
+              <Loader2 size={16} className="animate-spin" />
+              후보를 찾는 중...
+            </div>
+          )}
+
+          {placeAddResults.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm font-black text-slate-700">검색 결과를 누르면 바로 후보로 추가됩니다</p>
+              {placeAddResults.map((detail) => (
+                <button
+                  key={`${detail.osmType}-${detail.osmId}-${detail.placeId}`}
+                  type="button"
+                  onClick={() => addPlaceCandidate(detail)}
+                  className="w-full rounded-lg border border-slate-100 bg-white p-3 text-left shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words font-black text-slate-900">{detail.name}</p>
+                      <p className="mt-1 break-words text-xs text-slate-500">{detail.address}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-[11px] font-black text-teal-700">
+                      {detail.countryCode.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                      {formatPlaceType(detail)}
+                    </span>
+                    {detail.phone && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">전화 있음</span>
+                    )}
+                    {detail.openingHours && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">영업시간 있음</span>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                    <span>
+                      좌표 {formatCoord(detail.latitude)}, {formatCoord(detail.longitude)}
+                    </span>
+                    <span className="font-black text-teal-700">후보로 추가</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            !placeAddLoading &&
+            !placeAddError && (
+              <EmptyState
+                icon="🗺️"
+                title="지도에서 후보를 찾아볼까요"
+                description="가게 이름이나 영문명을 넣고 검색해보세요."
               />
             )
           )}
