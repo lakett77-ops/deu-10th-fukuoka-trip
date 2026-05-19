@@ -1,5 +1,5 @@
 import { Dispatch, FormEvent, SetStateAction, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Globe, Loader2, MapPin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Globe, Loader2, MapPin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import Card from "../../components/Card";
 import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
@@ -94,6 +94,16 @@ function PlaceDetailPanel({
         <MetaRow label="영업" value={detail.openingHours} />
         <MetaRow label="좌표" value={`${formatCoord(detail.latitude)}, ${formatCoord(detail.longitude)}`} />
         <MetaRow label="국가" value={detail.countryCode.toUpperCase()} />
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-lg border border-white bg-white shadow-sm">
+        <iframe
+          title={`${detail.name} 지도 미리보기`}
+          src={detail.embedMapUrl}
+          className="h-44 w-full"
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
       </div>
 
       {extraTags.length > 0 && (
@@ -408,9 +418,9 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             <ExternalLink size={18} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-black text-slate-900">가게 상세 연동</p>
+            <p className="text-sm font-black text-slate-900">투표와 지도 연결</p>
             <p className="mt-1 text-sm text-slate-600">
-              후보 카드에서 검색 버튼을 누르면 OpenStreetMap / Nominatim 공개 API로 주소, 전화, 영업시간, 지도 링크를 붙일 수 있어요.
+              옵션을 누르면 바로 투표되고, 아래 가게 검색 버튼으로 OpenStreetMap / Nominatim 공개 API에서 주소, 전화, 영업시간, 지도를 붙일 수 있어요.
             </p>
           </div>
         </div>
@@ -440,44 +450,64 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
 
                 <div className="mt-4 space-y-3">
                   {topic.candidates.length ? (
-                    topic.candidates.map((candidate) => {
+                    topic.candidates.map((candidate, candidateIndex) => {
                       const voted = candidate.voterIds.includes(selectedVoterId);
                       const percent = Math.round((candidate.voterIds.length / maxVotes) * 100);
+                      const voters = candidate.voterIds.map((id) => participantById.get(id)?.name ?? "알 수 없음");
                       return (
-                        <div key={candidate.id} className="rounded-lg border border-slate-100 p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="break-words font-black text-slate-900">{candidate.title}</p>
-                              <p className="mt-1 break-words text-xs text-slate-500">
-                                {candidate.voterIds.length
-                                  ? candidate.voterIds.map((id) => participantById.get(id)?.name ?? "알 수 없음").join(", ")
-                                  : "아직 투표 없음"}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 gap-1">
-                              <button
-                                type="button"
-                                onClick={() => toggleVote(topic.id, candidate.id)}
-                                className={`h-9 rounded-lg px-3 text-xs font-black ${
-                                  voted ? "bg-rose-100 text-rose-700" : "bg-teal-500 text-white"
+                        <div key={candidate.id} className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() => toggleVote(topic.id, candidate.id)}
+                            className={`w-full rounded-xl p-3 text-left transition ${
+                              voted ? "bg-teal-50 ring-1 ring-teal-200" : "bg-slate-50/80 hover:bg-slate-100"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div
+                                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border text-sm font-black ${
+                                  voted ? "border-teal-500 bg-teal-500 text-white" : "border-slate-300 bg-white text-slate-400"
                                 }`}
                               >
-                                {voted ? "취소" : "투표"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteCandidate(topic.id, candidate.id)}
-                                className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-500"
-                                aria-label="후보 삭제"
-                              >
-                                <Trash2 size={15} />
-                              </button>
+                                {voted ? <Check size={16} /> : candidateIndex + 1}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="break-words text-base font-black text-slate-900">{candidate.title}</p>
+                                    <p className="mt-1 break-words text-xs text-slate-500">
+                                      {candidate.voterIds.length
+                                        ? `${voters.join(", ")}가 선택함`
+                                        : "아직 투표 없음"}
+                                    </p>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-base font-black text-teal-700">{candidate.voterIds.length}표</p>
+                                    <p className="text-[11px] font-semibold text-slate-400">{percent}%</p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/90">
+                                  <div className={`h-full rounded-full ${voted ? "bg-teal-500" : "bg-slate-300"}`} style={{ width: `${percent}%` }} />
+                                </div>
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {candidate.voterIds.length ? (
+                                    voters.slice(0, 4).map((name) => (
+                                      <span key={name} className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-slate-600 shadow-sm">
+                                        {name}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-slate-400 shadow-sm">
+                                      투표자 없음
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100">
-                            <div className="h-full rounded-full bg-teal-500" style={{ width: `${percent}%` }} />
-                          </div>
-                          <p className="mt-1 text-right text-xs font-black text-teal-700">{candidate.voterIds.length}표</p>
+                          </button>
 
                           {candidate.placeDetail ? (
                             <PlaceDetailPanel
@@ -488,17 +518,58 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                               onClear={() => clearPlaceDetail(topic.id, candidate.id)}
                             />
                           ) : (
+                            <div className="mt-3 rounded-lg border border-dashed border-teal-200 bg-teal-50/70 p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-black text-slate-900">가게 상세 미연결</p>
+                                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                                    지도 검색으로 주소, 전화, 영업시간을 붙일 수 있어요.
+                                  </p>
+                                </div>
+                                <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-teal-700 shadow-sm">
+                                  지도 검색
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void openPlaceModal(topic.id, candidate.id);
+                                }}
+                                className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-white font-bold text-teal-700 shadow-sm"
+                              >
+                                <Search size={16} />
+                                가게 지도 검색
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex flex-wrap gap-2">
                             <button
                               type="button"
                               onClick={() => {
                                 void openPlaceModal(topic.id, candidate.id);
                               }}
-                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-teal-200 bg-teal-50 px-3 py-3 text-sm font-bold text-teal-700"
+                              className="h-9 rounded-lg bg-slate-900 px-3 text-xs font-black text-white"
                             >
-                              <Search size={16} />
-                              가게 상세 불러오기
+                              가게 검색
                             </button>
-                          )}
+                            {candidate.placeDetail && (
+                              <button
+                                type="button"
+                                onClick={() => clearPlaceDetail(topic.id, candidate.id)}
+                                className="h-9 rounded-lg bg-white px-3 text-xs font-black text-rose-600 shadow-sm"
+                              >
+                                상세 해제
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => deleteCandidate(topic.id, candidate.id)}
+                              className="h-9 rounded-lg bg-white px-3 text-xs font-black text-slate-500 shadow-sm"
+                            >
+                              삭제
+                            </button>
+                          </div>
                         </div>
                       );
                     })
@@ -656,10 +727,21 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                     )}
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                    <span>
+                    <span className="break-words">
                       좌표 {formatCoord(detail.latitude)}, {formatCoord(detail.longitude)}
                     </span>
-                    <span className="font-black text-teal-700">등록하기</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={detail.mapUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-1 font-black text-teal-700"
+                      >
+                        <MapPin size={12} />
+                        지도 열기
+                      </a>
+                      <span className="font-black text-teal-700">등록하기</span>
+                    </div>
                   </div>
                 </button>
               ))}

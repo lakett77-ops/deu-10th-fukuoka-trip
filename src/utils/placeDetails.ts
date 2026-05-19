@@ -6,6 +6,7 @@ interface NominatimResult {
   osm_id: number;
   lat: string;
   lon: string;
+  boundingbox?: string[];
   display_name: string;
   category?: string;
   type?: string;
@@ -84,12 +85,30 @@ const formatAddress = (address?: Record<string, string>) => {
   return parts.join(", ");
 };
 
+const parseBoundingBox = (value: string[] | undefined, latitude: number, longitude: number): [number, number, number, number] => {
+  const south = Number(value?.[0] ?? latitude);
+  const north = Number(value?.[1] ?? latitude);
+  const west = Number(value?.[2] ?? longitude);
+  const east = Number(value?.[3] ?? longitude);
+
+  if ([south, north, west, east].some((item) => Number.isNaN(item))) {
+    return [latitude, latitude, longitude, longitude];
+  }
+
+  return [south, north, west, east];
+};
+
 const normalizeResult = (result: NominatimResult, query: string): PlaceDetail => {
   const tags = result.extratags ?? {};
   const displayName = result.display_name?.trim() || formatAddress(result.address) || query;
   const rawAddress = result.address ?? {};
+  const latitude = Number(result.lat);
+  const longitude = Number(result.lon);
+  const boundingBox = parseBoundingBox(result.boundingbox, latitude, longitude);
   const name = result.name?.trim() || result.namedetails?.name?.trim() || displayName.split(",")[0]?.trim() || query;
   const countryCode = rawAddress.country_code?.trim().toLowerCase() || "";
+  const [south, north, west, east] = boundingBox;
+  const embedMapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik&marker=${latitude}%2C${longitude}`;
 
   return {
     query,
@@ -99,15 +118,17 @@ const normalizeResult = (result: NominatimResult, query: string): PlaceDetail =>
     category: result.category ?? result.class ?? "place",
     type: result.type ?? "",
     countryCode,
-    latitude: Number(result.lat),
-    longitude: Number(result.lon),
+    latitude,
+    longitude,
     placeId: result.place_id,
     osmType: result.osm_type,
     osmId: result.osm_id,
     phone: tags.phone ?? tags["contact:phone"] ?? "",
     website: tags.website ?? tags["contact:website"] ?? tags.url ?? "",
     openingHours: tags.opening_hours ?? "",
+    boundingBox,
     mapUrl: `https://www.openstreetmap.org/${result.osm_type}/${result.osm_id}`,
+    embedMapUrl,
     osmUrl: `https://www.openstreetmap.org/${result.osm_type}/${result.osm_id}`,
     license: result.licence ?? "Data © OpenStreetMap contributors, ODbL 1.0",
     tags,
@@ -122,6 +143,7 @@ const fetchSearchResults = async (query: string) => {
     extratags: "1",
     namedetails: "1",
     limit: "8",
+    countrycodes: "jp",
     "accept-language": "ko,en",
   });
 

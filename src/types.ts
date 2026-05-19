@@ -125,7 +125,9 @@ export interface PlaceDetail {
   phone: string;
   website: string;
   openingHours: string;
+  boundingBox: [number, number, number, number];
   mapUrl: string;
+  embedMapUrl: string;
   osmUrl: string;
   license: string;
   tags: Record<string, string>;
