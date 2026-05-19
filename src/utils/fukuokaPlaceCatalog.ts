@@ -1,9 +1,10 @@
 import type { PlaceDetail } from "../types";
 import type { PlaceSearchMode } from "./placeDetails";
+import { OSM_FUKUOKA_CATALOG } from "./fukuokaPlaceCatalogData";
 
-type CatalogKind = "food" | "bar" | "cafe" | "activity" | "shopping" | "stay";
+export type CatalogKind = "food" | "bar" | "cafe" | "activity" | "shopping" | "stay";
 
-interface CatalogPlaceSeed {
+export interface CatalogPlaceSeed {
   id: string;
   name: string;
   address: string;
@@ -12,13 +13,18 @@ interface CatalogPlaceSeed {
   kind: CatalogKind;
   latitude: number;
   longitude: number;
+  source?: "manual" | "osm";
+  priority?: number;
+  osmType?: "node" | "way" | "relation";
+  osmId?: number;
+  license?: string;
   phone?: string;
   website?: string;
   openingHours?: string;
   aliases: string[];
 }
 
-const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
+const CURATED_FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
   {
     id: "shinshin-tenjin",
     name: "博多らーめん ShinShin 天神本店",
@@ -28,6 +34,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5928,
     longitude: 130.3957,
+    source: "manual",
+    priority: 1,
     aliases: ["신신", "신신라멘", "신신 라멘", "shin shin", "hakata ramen shin shin", "博多らーめんshinshin"],
   },
   {
@@ -39,6 +47,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5902,
     longitude: 130.4206,
+    source: "manual",
+    priority: 2,
     aliases: ["신신 하카타", "신신라멘 하카타", "shin shin hakata", "hakata ramen shin shin hakata"],
   },
   {
@@ -50,6 +60,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5914,
     longitude: 130.4149,
+    source: "manual",
+    priority: 3,
     aliases: ["이치란", "이치란 라멘", "ichiran", "ichiran ramen", "一蘭"],
   },
   {
@@ -61,6 +73,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5935,
     longitude: 130.4051,
+    source: "manual",
+    priority: 4,
     aliases: ["이치란 나카스", "이치란 본점", "ichiran nakasu", "ichiran main store"],
   },
   {
@@ -72,6 +86,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5927,
     longitude: 130.4046,
+    source: "manual",
+    priority: 5,
     aliases: ["멘타이쥬", "멘타이 주", "명란덮밥", "mentaiju", "mentai jyu", "元祖博多めんたい重"],
   },
   {
@@ -83,6 +99,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "food",
     latitude: 33.5917,
     longitude: 130.4076,
+    source: "manual",
+    priority: 6,
     aliases: ["나카스", "나카스 포장마차", "포장마차", "nakasu yatai", "nakasu food stalls"],
   },
   {
@@ -94,6 +112,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "bar",
     latitude: 33.5895,
     longitude: 130.3984,
+    source: "manual",
+    priority: 7,
     aliases: ["텐진 이자카야", "텐진 술집", "이자카야", "tenjin izakaya", "tenjin bar"],
   },
   {
@@ -105,6 +125,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "activity",
     latitude: 33.5215,
     longitude: 130.5348,
+    source: "manual",
+    priority: 8,
     aliases: ["다자이후", "다자이후 텐만구", "dazaifu", "dazaifu tenmangu", "太宰府天満宮"],
   },
   {
@@ -116,6 +138,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "activity",
     latitude: 33.5931,
     longitude: 130.3515,
+    source: "manual",
+    priority: 9,
     aliases: ["모모치", "모모치해변", "모모치 해변", "momochi", "momochi seaside park", "momochihama"],
   },
   {
@@ -127,6 +151,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "activity",
     latitude: 33.5862,
     longitude: 130.3764,
+    source: "manual",
+    priority: 10,
     aliases: ["오호리", "오호리공원", "오호리 공원", "ohori park", "ohorikoen", "大濠公園"],
   },
   {
@@ -138,6 +164,8 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "shopping",
     latitude: 33.5898,
     longitude: 130.4111,
+    source: "manual",
+    priority: 11,
     aliases: ["캐널", "캐널시티", "캐널시티 하카타", "canal city", "canal city hakata"],
   },
   {
@@ -149,15 +177,34 @@ const FUKUOKA_CATALOG: CatalogPlaceSeed[] = [
     kind: "shopping",
     latitude: 33.5939,
     longitude: 130.4053,
+    source: "manual",
+    priority: 12,
     aliases: ["돈키", "돈키호테", "돈키호테 나카스", "donki", "don quijote", "don quixote"],
   },
 ];
 
-const normalizeQueryKey = (value: string) =>
-  value
+const dedupeCatalog = (places: CatalogPlaceSeed[]) => {
+  const seen = new Set<string>();
+  const deduped: CatalogPlaceSeed[] = [];
+
+  for (const place of places) {
+    const key = `${normalizeQueryKey(place.name)}:${place.latitude.toFixed(4)}:${place.longitude.toFixed(4)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(place);
+  }
+
+  return deduped;
+};
+
+const FUKUOKA_CATALOG = dedupeCatalog([...CURATED_FUKUOKA_CATALOG, ...OSM_FUKUOKA_CATALOG]).slice(0, 300);
+
+function normalizeQueryKey(value: string) {
+  return value
     .toLowerCase()
     .replace(/[\s\-_.,"'()·/]+/g, "")
     .trim();
+}
 
 const isFoodModeMatch = (place: CatalogPlaceSeed) => ["food", "bar", "cafe"].includes(place.kind);
 
@@ -178,7 +225,9 @@ const toEmbedMapUrl = (latitude: number, longitude: number) =>
 
 const toPlaceDetail = (place: CatalogPlaceSeed, query: string): PlaceDetail => {
   const mapQuery = `${place.name} Fukuoka`;
-  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
+  const osmUrl = place.osmType && place.osmId ? `https://www.openstreetmap.org/${place.osmType}/${place.osmId}` : "";
+  const mapUrl = osmUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
+  const sourceLabel = place.source === "osm" ? "OpenStreetMap" : "앱 기본 후보";
 
   return {
     source: "catalog",
@@ -192,16 +241,18 @@ const toPlaceDetail = (place: CatalogPlaceSeed, query: string): PlaceDetail => {
     latitude: place.latitude,
     longitude: place.longitude,
     placeId: `catalog-${place.id}`,
+    osmType: place.osmType,
+    osmId: place.osmId,
     phone: place.phone ?? "",
     website: place.website ?? "",
     openingHours: place.openingHours ?? "",
     boundingBox: [place.latitude - 0.01, place.latitude + 0.01, place.longitude - 0.01, place.longitude + 0.01],
     mapUrl,
     embedMapUrl: toEmbedMapUrl(place.latitude, place.longitude),
-    osmUrl: mapUrl,
-    license: "앱 기본 후보",
+    osmUrl: osmUrl || mapUrl,
+    license: place.license ?? (place.source === "osm" ? "Data © OpenStreetMap contributors, ODbL 1.0" : "앱 기본 후보"),
     tags: {
-      source: "앱 기본 후보",
+      source: sourceLabel,
       mapSearch: mapQuery,
     },
   };
@@ -213,6 +264,9 @@ export function searchFukuokaPlaceCatalog(query: string, mode: PlaceSearchMode):
 
   return FUKUOKA_CATALOG.map((place) => ({ place, score: scorePlace(place, normalizedQuery) }))
     .filter(({ place, score }) => score > 0 && (mode !== "food" || isFoodModeMatch(place)))
-    .sort((left, right) => right.score - left.score || left.place.name.localeCompare(right.place.name))
+    .sort(
+      (left, right) =>
+        right.score - left.score || (left.place.priority ?? 999) - (right.place.priority ?? 999) || left.place.name.localeCompare(right.place.name),
+    )
     .map(({ place }) => toPlaceDetail(place, query));
 }
