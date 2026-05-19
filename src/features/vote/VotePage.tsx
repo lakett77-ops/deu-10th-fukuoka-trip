@@ -1,10 +1,11 @@
-import { Dispatch, FormEvent, SetStateAction, useMemo, useState } from "react";
-import { ArrowLeft, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Dispatch, FormEvent, SetStateAction, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ExternalLink, Globe, Loader2, MapPin, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import Card from "../../components/Card";
 import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
-import type { TravelAppData, VoteCategory, VoteTopic } from "../../types";
+import type { PlaceDetail, TravelAppData, VoteCandidate, VoteCategory, VoteTopic } from "../../types";
 import { createId } from "../../utils/id";
+import { searchPlaceDetails } from "../../utils/placeDetails";
 
 interface VotePageProps {
   data: TravelAppData;
@@ -29,17 +30,160 @@ const emptyTopic: Omit<VoteTopic, "id"> = {
   candidates: [],
 };
 
+const formatPlaceType = (detail: PlaceDetail) =>
+  [detail.category, detail.type].filter(Boolean).join(" / ") || "정보 없음";
+
+const formatCoord = (value: number) => value.toFixed(5);
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[72px,1fr] gap-2 rounded-lg bg-white/80 px-3 py-2 text-sm">
+      <span className="font-bold text-slate-500">{label}</span>
+      <span className="break-words text-slate-900">{value || "정보 없음"}</span>
+    </div>
+  );
+}
+
+function PlaceDetailPanel({
+  detail,
+  onEdit,
+  onClear,
+}: {
+  detail: PlaceDetail;
+  onEdit: () => void;
+  onClear: () => void;
+}) {
+  const extraTags = Object.entries(detail.tags).sort(([left], [right]) => left.localeCompare(right));
+
+  return (
+    <div className="mt-3 rounded-lg bg-teal-50/70 p-3 ring-1 ring-teal-100">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-wide text-teal-600">가게 상세</p>
+          <h3 className="mt-1 break-words text-base font-black text-slate-900">{detail.name}</h3>
+          <p className="mt-1 text-xs text-slate-500">OpenStreetMap / Nominatim</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <a
+            href={detail.mapUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center gap-1 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm"
+          >
+            <MapPin size={14} />
+            지도
+          </a>
+          {detail.website && (
+            <a
+              href={detail.website}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-9 items-center gap-1 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm"
+            >
+              <Globe size={14} />
+              홈페이지
+            </a>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <MetaRow label="주소" value={detail.address} />
+        <MetaRow label="종류" value={formatPlaceType(detail)} />
+        <MetaRow label="전화" value={detail.phone} />
+        <MetaRow label="영업" value={detail.openingHours} />
+        <MetaRow label="좌표" value={`${formatCoord(detail.latitude)}, ${formatCoord(detail.longitude)}`} />
+        <MetaRow label="국가" value={detail.countryCode.toUpperCase()} />
+      </div>
+
+      {extraTags.length > 0 && (
+        <details className="mt-3 rounded-lg border border-teal-100 bg-white/90 p-3">
+          <summary className="cursor-pointer text-sm font-bold text-slate-700">추가 태그 보기</summary>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {extraTags.map(([key, value]) => (
+              <span key={key} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
+                {key}: {value}
+              </span>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 font-bold text-white"
+        >
+          <Search size={16} />
+          다시 검색
+        </button>
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-white px-3 font-bold text-rose-600 shadow-sm"
+        >
+          <Trash2 size={16} />
+          연결 해제
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function VotePage({ data, setData, onBack }: VotePageProps) {
   const [selectedVoterId, setSelectedVoterId] = useState(data.participants[0]?.id ?? "");
   const [topicModalOpen, setTopicModalOpen] = useState(false);
   const [candidateTopicId, setCandidateTopicId] = useState<string | null>(null);
   const [topicForm, setTopicForm] = useState<Omit<VoteTopic, "id">>(emptyTopic);
   const [candidateTitle, setCandidateTitle] = useState("");
+  const [placeModalTarget, setPlaceModalTarget] = useState<{ topicId: string; candidateId: string } | null>(null);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceDetail[]>([]);
+  const [placeLoading, setPlaceLoading] = useState(false);
+  const [placeError, setPlaceError] = useState("");
+  const placeSearchRequestId = useRef(0);
 
   const participantById = useMemo(
     () => new Map(data.participants.map((participant) => [participant.id, participant])),
     [data.participants],
   );
+
+  const placeTargetCandidate = useMemo(() => {
+    if (!placeModalTarget) return null;
+
+    const topic = data.votes.find((item) => item.id === placeModalTarget.topicId) ?? null;
+    const candidate = topic?.candidates.find((item) => item.id === placeModalTarget.candidateId) ?? null;
+
+    return { topic, candidate };
+  }, [data.votes, placeModalTarget]);
+
+  const updateCandidate = (
+    topicId: string,
+    candidateId: string,
+    updater: (candidate: VoteCandidate) => VoteCandidate,
+  ) => {
+    setData((current) => ({
+      ...current,
+      votes: current.votes.map((topic) =>
+        topic.id !== topicId
+          ? topic
+          : {
+              ...topic,
+              candidates: topic.candidates.map((candidate) =>
+                candidate.id !== candidateId ? candidate : updater(candidate),
+              ),
+            },
+      ),
+    }));
+  };
+
+  const updateTopicCandidates = (topicId: string, updater: (candidates: VoteCandidate[]) => VoteCandidate[]) => {
+    setData((current) => ({
+      ...current,
+      votes: current.votes.map((topic) => (topic.id === topicId ? { ...topic, candidates: updater(topic.candidates) } : topic)),
+    }));
+  };
 
   const saveTopic = (event: FormEvent) => {
     event.preventDefault();
@@ -73,58 +217,28 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     event.preventDefault();
     if (!candidateTopicId || !candidateTitle.trim()) return;
 
-    setData((current) => ({
-      ...current,
-      votes: current.votes.map((topic) =>
-        topic.id === candidateTopicId
-          ? {
-              ...topic,
-              candidates: [
-                ...topic.candidates,
-                { id: createId("candidate"), title: candidateTitle.trim(), voterIds: [] },
-              ],
-            }
-          : topic,
-      ),
-    }));
+    updateTopicCandidates(candidateTopicId, (candidates) => [
+      ...candidates,
+      { id: createId("candidate"), title: candidateTitle.trim(), voterIds: [] },
+    ]);
     setCandidateTitle("");
     setCandidateTopicId(null);
   };
 
   const deleteCandidate = (topicId: string, candidateId: string) => {
     if (!confirm("이 후보를 삭제할까요?")) return;
-    setData((current) => ({
-      ...current,
-      votes: current.votes.map((topic) =>
-        topic.id === topicId
-          ? { ...topic, candidates: topic.candidates.filter((candidate) => candidate.id !== candidateId) }
-          : topic,
-      ),
-    }));
+    updateTopicCandidates(topicId, (candidates) => candidates.filter((candidate) => candidate.id !== candidateId));
   };
 
   const toggleVote = (topicId: string, candidateId: string) => {
     if (!selectedVoterId) return;
-    setData((current) => ({
-      ...current,
-      votes: current.votes.map((topic) =>
-        topic.id === topicId
-          ? {
-              ...topic,
-              candidates: topic.candidates.map((candidate) => {
-                if (candidate.id !== candidateId) return candidate;
-                const voted = candidate.voterIds.includes(selectedVoterId);
-                return {
-                  ...candidate,
-                  voterIds: voted
-                    ? candidate.voterIds.filter((id) => id !== selectedVoterId)
-                    : [...candidate.voterIds, selectedVoterId],
-                };
-              }),
-            }
-          : topic,
-      ),
-    }));
+    updateCandidate(topicId, candidateId, (candidate) => {
+      const voted = candidate.voterIds.includes(selectedVoterId);
+      return {
+        ...candidate,
+        voterIds: voted ? candidate.voterIds.filter((id) => id !== selectedVoterId) : [...candidate.voterIds, selectedVoterId],
+      };
+    });
   };
 
   const resetVotes = () => {
@@ -136,6 +250,97 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
         candidates: topic.candidates.map((candidate) => ({ ...candidate, voterIds: [] })),
       })),
     }));
+  };
+
+  const openPlaceModal = async (topicId: string, candidateId: string) => {
+    const topic = data.votes.find((item) => item.id === topicId);
+    const candidate = topic?.candidates.find((item) => item.id === candidateId);
+    const initialQuery = candidate?.placeDetail?.query || candidate?.title || "";
+    const requestId = ++placeSearchRequestId.current;
+
+    setPlaceModalTarget({ topicId, candidateId });
+    setPlaceQuery(initialQuery);
+    setPlaceResults([]);
+    setPlaceError("");
+    setPlaceLoading(true);
+
+    try {
+      const results = await searchPlaceDetails(initialQuery);
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceResults(results);
+      if (!results.length) {
+        setPlaceError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+      }
+    } catch (error) {
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceResults([]);
+      setPlaceError(error instanceof Error ? error.message : "가게 상세 검색에 실패했어요.");
+    } finally {
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceLoading(false);
+    }
+  };
+
+  const runPlaceSearch = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const query = placeQuery.trim();
+    const requestId = ++placeSearchRequestId.current;
+    if (!query) {
+      setPlaceResults([]);
+      setPlaceError("검색어를 입력해 주세요.");
+      return;
+    }
+
+    setPlaceLoading(true);
+    setPlaceError("");
+
+    try {
+      const results = await searchPlaceDetails(query);
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceResults(results);
+      if (!results.length) {
+        setPlaceError("검색 결과가 없어요. 영문명이나 Fukuoka를 붙여 다시 시도해보세요.");
+      }
+    } catch (error) {
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceResults([]);
+      setPlaceError(error instanceof Error ? error.message : "가게 상세 검색에 실패했어요.");
+    } finally {
+      if (placeSearchRequestId.current !== requestId) return;
+      setPlaceLoading(false);
+    }
+  };
+
+  const attachPlaceDetail = (detail: PlaceDetail) => {
+    if (!placeModalTarget) return;
+
+    updateCandidate(placeModalTarget.topicId, placeModalTarget.candidateId, (candidate) => ({
+      ...candidate,
+      placeDetail: detail,
+    }));
+
+    setPlaceModalTarget(null);
+    setPlaceQuery("");
+    setPlaceResults([]);
+    setPlaceError("");
+    setPlaceLoading(false);
+  };
+
+  const clearPlaceDetail = (topicId: string, candidateId: string) => {
+    if (!confirm("연결된 가게 상세를 해제할까요?")) return;
+    updateCandidate(topicId, candidateId, (candidate) => ({
+      ...candidate,
+      placeDetail: undefined,
+    }));
+  };
+
+  const closePlaceModal = () => {
+    placeSearchRequestId.current += 1;
+    setPlaceModalTarget(null);
+    setPlaceQuery("");
+    setPlaceResults([]);
+    setPlaceError("");
+    setPlaceLoading(false);
   };
 
   return (
@@ -195,6 +400,20 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             ))}
           </select>
         </label>
+      </Card>
+
+      <Card className="bg-teal-50/70">
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-teal-600 shadow-sm">
+            <ExternalLink size={18} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-black text-slate-900">가게 상세 연동</p>
+            <p className="mt-1 text-sm text-slate-600">
+              후보 카드에서 검색 버튼을 누르면 OpenStreetMap / Nominatim 공개 API로 주소, 전화, 영업시간, 지도 링크를 붙일 수 있어요.
+            </p>
+          </div>
+        </div>
       </Card>
 
       {data.votes.length ? (
@@ -259,6 +478,27 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
                             <div className="h-full rounded-full bg-teal-500" style={{ width: `${percent}%` }} />
                           </div>
                           <p className="mt-1 text-right text-xs font-black text-teal-700">{candidate.voterIds.length}표</p>
+
+                          {candidate.placeDetail ? (
+                            <PlaceDetailPanel
+                              detail={candidate.placeDetail}
+                              onEdit={() => {
+                                void openPlaceModal(topic.id, candidate.id);
+                              }}
+                              onClear={() => clearPlaceDetail(topic.id, candidate.id)}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void openPlaceModal(topic.id, candidate.id);
+                              }}
+                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-teal-200 bg-teal-50 px-3 py-3 text-sm font-bold text-teal-700"
+                            >
+                              <Search size={16} />
+                              가게 상세 불러오기
+                            </button>
+                          )}
                         </div>
                       );
                     })
@@ -332,6 +572,109 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
             저장
           </button>
         </form>
+      </Modal>
+
+      <Modal
+        title={`가게 상세 연결 · ${placeTargetCandidate?.candidate?.title ?? "후보"}`}
+        open={Boolean(placeModalTarget)}
+        onClose={closePlaceModal}
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-slate-600">
+            후보 이름이나 영문 가게명을 검색하면 주소, 전화, 영업시간, 지도 링크까지 붙일 수 있어요.
+            잘 안 나오면 <span className="font-bold text-slate-900">Fukuoka</span>를 붙여 다시 검색해 보세요.
+          </p>
+
+          {placeTargetCandidate?.candidate?.placeDetail && (
+            <div className="rounded-lg border border-teal-100 bg-teal-50/60 p-3">
+              <p className="text-xs font-black text-teal-600">현재 연결된 상세</p>
+              <p className="mt-1 break-words font-black text-slate-900">{placeTargetCandidate.candidate.placeDetail.name}</p>
+              <p className="mt-1 break-words text-xs text-slate-600">{placeTargetCandidate.candidate.placeDetail.address}</p>
+            </div>
+          )}
+
+          <form onSubmit={runPlaceSearch} className="space-y-3">
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">검색어</span>
+              <input
+                value={placeQuery}
+                onChange={(event) => setPlaceQuery(event.target.value)}
+                placeholder="예: Shin Shin, Ichiran, Canal City Hakata"
+                className="mt-1 h-12 w-full rounded-lg border border-slate-200 px-3"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={placeLoading}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-teal-500 font-black text-white disabled:opacity-70"
+            >
+              {placeLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+              검색
+            </button>
+          </form>
+
+          {placeError && <div className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{placeError}</div>}
+
+          {placeLoading && (
+            <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm font-bold text-slate-600">
+              <Loader2 size={16} className="animate-spin" />
+              가게 상세를 찾는 중...
+            </div>
+          )}
+
+          {placeResults.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm font-black text-slate-700">검색 결과</p>
+              {placeResults.map((detail) => (
+                <button
+                  key={`${detail.osmType}-${detail.osmId}-${detail.placeId}`}
+                  type="button"
+                  onClick={() => attachPlaceDetail(detail)}
+                  className="w-full rounded-lg border border-slate-100 bg-white p-3 text-left shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words font-black text-slate-900">{detail.name}</p>
+                      <p className="mt-1 break-words text-xs text-slate-500">{detail.address}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-[11px] font-black text-teal-700">
+                      {detail.countryCode.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                      {formatPlaceType(detail)}
+                    </span>
+                    {detail.phone && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">전화 있음</span>
+                    )}
+                    {detail.website && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">홈페이지 있음</span>
+                    )}
+                    {detail.openingHours && (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">영업시간 있음</span>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                    <span>
+                      좌표 {formatCoord(detail.latitude)}, {formatCoord(detail.longitude)}
+                    </span>
+                    <span className="font-black text-teal-700">등록하기</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            !placeLoading &&
+            !placeError && (
+              <EmptyState
+                icon="🏮"
+                title="검색 결과를 기다리는 중"
+                description="검색 버튼을 눌러 가게 상세를 불러와보세요."
+              />
+            )
+          )}
+        </div>
       </Modal>
 
       <Modal title="후보 추가" open={Boolean(candidateTopicId)} onClose={() => setCandidateTopicId(null)}>

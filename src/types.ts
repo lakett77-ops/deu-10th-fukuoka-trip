@@ -109,10 +109,33 @@ export interface PreflightCheckItem {
   memo: string;
 }
 
+export interface PlaceDetail {
+  query: string;
+  name: string;
+  displayName: string;
+  address: string;
+  category: string;
+  type: string;
+  countryCode: string;
+  latitude: number;
+  longitude: number;
+  placeId: number;
+  osmType: "node" | "way" | "relation";
+  osmId: number;
+  phone: string;
+  website: string;
+  openingHours: string;
+  mapUrl: string;
+  osmUrl: string;
+  license: string;
+  tags: Record<string, string>;
+}
+
 export interface VoteCandidate {
   id: string;
   title: string;
   voterIds: string[];
+  placeDetail?: PlaceDetail;
 }
 
 export interface VoteTopic {
