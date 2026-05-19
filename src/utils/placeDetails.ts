@@ -1,3 +1,4 @@
+import { searchGooglePlaceDetails } from "./googlePlaces";
 import type { PlaceDetail } from "../types";
 
 interface NominatimResult {
@@ -217,6 +218,7 @@ const normalizeResult = (result: NominatimResult, query: string): PlaceDetail =>
   const embedMapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik&marker=${latitude}%2C${longitude}`;
 
   return {
+    source: "osm",
     query,
     name,
     displayName,
@@ -277,8 +279,16 @@ const fetchSearchResults = async (query: string) => {
   }
 };
 
-export async function searchPlaceDetails(query: string, options: { mode?: PlaceSearchMode } = {}): Promise<PlaceDetail[]> {
+export async function searchPlaceDetails(
+  query: string,
+  options: { mode?: PlaceSearchMode; googleMapsApiKey?: string } = {},
+): Promise<PlaceDetail[]> {
   const mode = options.mode ?? "all";
+  const googleResults = await searchGooglePlaceDetails(query, { mode, apiKey: options.googleMapsApiKey });
+  if (googleResults?.length) {
+    return googleResults;
+  }
+
   const queries = buildSearchQueries(query, mode);
   let fallback: PlaceDetail[] = [];
 

@@ -33,9 +33,11 @@ const emptyTopic: Omit<VoteTopic, "id"> = {
 };
 
 const formatPlaceType = (detail: PlaceDetail) =>
-  [detail.category, detail.type].filter(Boolean).join(" / ") || "정보 없음";
+  Array.from(new Set([detail.category, detail.type].filter(Boolean))).join(" / ") || "정보 없음";
 
 const formatCoord = (value: number) => value.toFixed(5);
+
+const getPlaceSourceLabel = (detail: PlaceDetail) => (detail.source === "google" ? "Google Places" : "OpenStreetMap / Nominatim");
 
 const getSearchModeForTopic = (category?: VoteCategory | null): PlaceSearchMode =>
   category && FOOD_TOPIC_CATEGORIES.has(category) ? "food" : "all";
@@ -91,7 +93,7 @@ function PlaceDetailPanel({
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-wide text-teal-600">가게 상세</p>
           <h3 className="mt-1 break-words text-base font-black text-slate-900">{detail.name}</h3>
-          <p className="mt-1 text-xs text-slate-500">OpenStreetMap / Nominatim</p>
+          <p className="mt-1 text-xs text-slate-500">{getPlaceSourceLabel(detail)}</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <a
@@ -191,6 +193,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
   const [placeError, setPlaceError] = useState("");
   const placeSearchRequestId = useRef(0);
   const placeAddSearchRequestId = useRef(0);
+  const googleMapsApiKey = data.settings.googleMapsApiKey?.trim() || import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() || "";
 
   const participantById = useMemo(
     () => new Map(data.participants.map((participant) => [participant.id, participant])),
@@ -315,7 +318,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceLoading(true);
 
     try {
-      const results = await searchPlaceDetails(initialQuery, { mode: searchMode });
+      const results = await searchPlaceDetails(initialQuery, { mode: searchMode, googleMapsApiKey });
       if (placeSearchRequestId.current !== requestId) return;
       setPlaceResults(results);
       if (!results.length) {
@@ -349,7 +352,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceError("");
 
     try {
-      const results = await searchPlaceDetails(query, { mode: placeSearchMode });
+      const results = await searchPlaceDetails(query, { mode: placeSearchMode, googleMapsApiKey });
       if (placeSearchRequestId.current !== requestId) return;
       setPlaceResults(results);
       if (!results.length) {
@@ -434,7 +437,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
     setPlaceAddError("");
 
     try {
-      const results = await searchPlaceDetails(query, { mode: placeAddSearchMode });
+      const results = await searchPlaceDetails(query, { mode: placeAddSearchMode, googleMapsApiKey });
       if (placeAddSearchRequestId.current !== requestId) return;
       setPlaceAddResults(results);
       if (!results.length) {
@@ -527,8 +530,8 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
           <div className="min-w-0">
             <p className="text-sm font-black text-slate-900">투표와 지도 연결</p>
             <p className="mt-1 text-sm text-slate-600">
-              후보 카드를 누르면 바로 투표되고, 후보 추가에서는 직접 입력이나 지도 검색을 바로 고를 수 있어요. 가게 검색 버튼으로
-              OpenStreetMap / Nominatim 공개 API에서 주소, 전화, 영업시간, 지도를 붙일 수 있어요.
+              후보 카드를 누르면 바로 투표되고, 후보 추가에서는 직접 입력이나 지도 검색을 바로 고를 수 있어요. Google Places를 우선으로
+              검색하고, 키가 없거나 실패하면 OpenStreetMap으로 자동 전환해요.
             </p>
           </div>
         </div>
@@ -845,7 +848,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
               <p className="text-sm font-black text-slate-700">검색 결과</p>
               {placeResults.map((detail) => (
                 <button
-                  key={`${detail.osmType}-${detail.osmId}-${detail.placeId}`}
+                  key={`${detail.source ?? "osm"}-${detail.placeId}`}
                   type="button"
                   onClick={() => attachPlaceDetail(detail)}
                   className="w-full rounded-lg border border-slate-100 bg-white p-3 text-left shadow-sm"
@@ -959,7 +962,7 @@ export default function VotePage({ data, setData, onBack }: VotePageProps) {
               <p className="text-sm font-black text-slate-700">검색 결과를 누르면 바로 후보로 추가됩니다</p>
               {placeAddResults.map((detail) => (
                 <button
-                  key={`${detail.osmType}-${detail.osmId}-${detail.placeId}`}
+                  key={`${detail.source ?? "osm"}-${detail.placeId}`}
                   type="button"
                   onClick={() => addPlaceCandidate(detail)}
                   className="w-full rounded-lg border border-slate-100 bg-white p-3 text-left shadow-sm"

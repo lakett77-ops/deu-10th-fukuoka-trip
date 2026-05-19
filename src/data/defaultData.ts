@@ -455,6 +455,7 @@ export const defaultData: TravelAppData = {
     announcement: "항공권/여권 확인하고, 숙소비 입금 안 한 사람은 총무에게 바로 보내기. 첫날 저녁은 라멘부터 갑니다.",
     exchangeRate: 9.33,
     homeEmojis: ["✈️", "🍜", "🍻", "🏮", "🌊"],
+    googleMapsApiKey: "",
   },
   participants: defaultParticipants,
   participantMessages: defaultParticipantMessages,

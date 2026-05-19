@@ -38,6 +38,7 @@ export interface TripSettings {
   announcement: string;
   exchangeRate: number;
   homeEmojis: string[];
+  googleMapsApiKey: string;
 }
 
 export interface Participant {
@@ -110,6 +111,7 @@ export interface PreflightCheckItem {
 }
 
 export interface PlaceDetail {
+  source?: "google" | "osm";
   query: string;
   name: string;
   displayName: string;
@@ -119,9 +121,9 @@ export interface PlaceDetail {
   countryCode: string;
   latitude: number;
   longitude: number;
-  placeId: number;
-  osmType: "node" | "way" | "relation";
-  osmId: number;
+  placeId: string | number;
+  osmType?: "node" | "way" | "relation";
+  osmId?: number;
   phone: string;
   website: string;
   openingHours: string;

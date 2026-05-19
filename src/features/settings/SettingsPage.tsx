@@ -38,6 +38,7 @@ export default function SettingsPage({ data, setData, onBack }: SettingsPageProp
       settings: {
         ...data.settings,
         announcement: "",
+        googleMapsApiKey: "",
       },
       participants: data.participants.map((participant) => ({
         ...participant,
@@ -67,7 +68,7 @@ export default function SettingsPage({ data, setData, onBack }: SettingsPageProp
   };
 
   const resetSettingsSection = () => {
-    if (!confirm("설정 섹션을 하드 리셋할까요? 여행 기본 정보와 기본 참석자 이름/별명/계좌가 예시 기본값으로 돌아갑니다.")) return;
+    if (!confirm("설정 섹션을 하드 리셋할까요? 여행 기본 정보, Google 키, 기본 참석자 이름/별명/계좌가 예시 기본값으로 돌아갑니다.")) return;
     const defaults = restoreDefaultTripData();
     setData((current) => ({
       ...current,
@@ -162,6 +163,14 @@ export default function SettingsPage({ data, setData, onBack }: SettingsPageProp
             className="mt-1 h-12 w-full rounded-lg border border-slate-200 px-3"
           />
         </label>
+        <TextField
+          label="Google Places API 키"
+          value={data.settings.googleMapsApiKey}
+          onChange={(value) => updateSettings({ googleMapsApiKey: value })}
+        />
+        <p className="text-xs leading-5 text-slate-500">
+          있으면 구글 장소 검색을 먼저 쓰고, 없으면 OpenStreetMap으로 자동 전환해요. 키는 도메인 제한을 걸어서 쓰는 걸 추천해요.
+        </p>
         <label className="block">
           <span className="text-sm font-bold text-slate-700">공지사항</span>
           <textarea
