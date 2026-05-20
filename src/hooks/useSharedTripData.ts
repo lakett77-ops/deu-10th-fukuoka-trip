@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TravelAppData } from "../types";
-import { loadTripData } from "../utils/storage";
+import { loadTripData, stripPhotoLibraryFromData } from "../utils/storage";
+import { loadPhotoLibrary, replacePhotoLibrary } from "../utils/photoStorage";
 
 const SYNC_ROOM_ID = "deu-10th-fukuoka-trip";
 const SYNC_TABLE = "trip_state";
@@ -35,6 +36,11 @@ const isTripData = (value: unknown): value is TravelAppData => {
   );
 };
 
+const mergeRemoteDataWithLocalPhotos = (remoteData: TravelAppData, localPhotos: TravelAppData["photoLibrary"]): TravelAppData => ({
+  ...remoteData,
+  photoLibrary: localPhotos,
+});
+
 const getCloudConfig = () => {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim();
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -46,7 +52,7 @@ const getCloudConfig = () => {
   return { url, anonKey };
 };
 
-const serialize = (value: TravelAppData) => JSON.stringify(value);
+const serialize = (value: TravelAppData) => JSON.stringify(stripPhotoLibraryFromData(value));
 
 const buildHeaders = (anonKey: string) => ({
   apikey: anonKey,
@@ -74,6 +80,7 @@ const readRemoteRow = async (config: { url: string; anonKey: string }) => {
 };
 
 const writeRemoteRow = async (config: { url: string; anonKey: string }, payload: TravelAppData) => {
+  const sanitizedPayload = stripPhotoLibraryFromData(payload);
   const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?on_conflict=id`, {
     method: "POST",
     headers: {
@@ -82,7 +89,7 @@ const writeRemoteRow = async (config: { url: string; anonKey: string }, payload:
     },
     body: JSON.stringify({
       id: SYNC_ROOM_ID,
-      payload,
+      payload: sanitizedPayload,
       updated_at: new Date().toISOString(),
     }),
   });
@@ -110,6 +117,35 @@ export function useSharedTripData() {
   }, [data]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const indexedPhotos = await loadPhotoLibrary();
+        if (cancelled) return;
+
+        if (indexedPhotos.length > 0) {
+          setData((current) => ({ ...current, photoLibrary: indexedPhotos }));
+          return;
+        }
+
+        const legacyPhotos = dataRef.current.photoLibrary ?? [];
+        if (!legacyPhotos.length) return;
+
+        await replacePhotoLibrary(legacyPhotos);
+        if (cancelled) return;
+        setData((current) => ({ ...current, photoLibrary: legacyPhotos }));
+      } catch (error) {
+        console.warn("Photo library hydration failed:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const config = getCloudConfig();
@@ -132,7 +168,12 @@ export function useSharedTripData() {
           const remoteSerialized = serialize(remoteRow.payload);
           lastPublishedRef.current = remoteSerialized;
           lastRemoteUpdatedAtRef.current = remoteRow.updated_at;
-          setData(remoteRow.payload);
+          setData((current) => mergeRemoteDataWithLocalPhotos(remoteRow.payload, current.photoLibrary ?? []));
+          if ((remoteRow.payload.photoLibrary?.length ?? 0) > 0) {
+            void writeRemoteRow(config, remoteRow.payload).catch((cleanupError) => {
+              console.warn("Remote photo payload cleanup failed:", cleanupError);
+            });
+          }
         } else {
           const seed = dataRef.current;
           const seedSerialized = serialize(seed);
@@ -166,7 +207,12 @@ export function useSharedTripData() {
               }
 
               lastPublishedRef.current = latestSerialized;
-              setData(latestRow.payload);
+              setData((current) => mergeRemoteDataWithLocalPhotos(latestRow.payload, current.photoLibrary ?? []));
+              if ((latestRow.payload.photoLibrary?.length ?? 0) > 0) {
+                void writeRemoteRow(config, latestRow.payload).catch((cleanupError) => {
+                  console.warn("Remote photo payload cleanup failed:", cleanupError);
+                });
+              }
             } catch (pollError) {
               console.warn("Remote sync poll failed:", pollError);
             }

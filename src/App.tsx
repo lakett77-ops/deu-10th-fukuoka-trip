@@ -19,7 +19,11 @@ export default function App() {
   const [moreView, setMoreView] = useState<MoreView>("menu");
 
   useEffect(() => {
-    saveTripData(data);
+    try {
+      saveTripData(data);
+    } catch (error) {
+      console.warn("Local trip save failed:", error);
+    }
   }, [data]);
 
   const handleTabChange = (tab: MainTab) => {

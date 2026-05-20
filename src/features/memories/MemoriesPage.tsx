@@ -5,6 +5,13 @@ import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
 import type { PhotoLibraryItem, TravelAppData } from "../../types";
 import { createId } from "../../utils/id";
+import {
+  clearPhotoLibrary,
+  deletePhotoLibraryByYear,
+  deletePhotoLibraryItem,
+  isQuotaExceededError,
+  savePhotoLibraryItems,
+} from "../../utils/photoStorage";
 
 interface MemoriesPageProps {
   data: TravelAppData;
@@ -24,7 +31,7 @@ const resizeImage = (file: File): Promise<string> =>
       const image = new Image();
 
       image.onload = () => {
-        const maxSide = 1280;
+        const maxSide = 960;
         const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
         const width = Math.max(1, Math.round(image.width * scale));
         const height = Math.max(1, Math.round(image.height * scale));
@@ -39,7 +46,7 @@ const resizeImage = (file: File): Promise<string> =>
         }
 
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.78));
+        resolve(canvas.toDataURL("image/jpeg", 0.68));
       };
 
       image.onerror = () => reject(new Error("지원하지 않는 이미지 형식이에요."));
@@ -49,6 +56,14 @@ const resizeImage = (file: File): Promise<string> =>
     reader.onerror = () => reject(new Error("사진을 읽지 못했어요."));
     reader.readAsDataURL(file);
   });
+
+const getPhotoUploadErrorMessage = (error: unknown) => {
+  if (isQuotaExceededError(error)) {
+    return "사진 저장 공간이 가득 찼어요. 기존 사진을 조금 지우고 다시 올려주세요.";
+  }
+
+  return error instanceof Error ? error.message : "사진 업로드에 실패했어요.";
+};
 
 export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -85,20 +100,23 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
         })),
       );
 
+      await savePhotoLibraryItems(uploadedPhotos);
+
       setData((current) => ({
         ...current,
         photoLibrary: [...uploadedPhotos, ...(current.photoLibrary ?? [])],
       }));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "사진 업로드에 실패했어요.");
+      alert(getPhotoUploadErrorMessage(error));
     } finally {
       setUploading(false);
       event.target.value = "";
     }
   };
 
-  const deletePhoto = (photoId: string) => {
+  const deletePhoto = async (photoId: string) => {
     if (!confirm("이 사진을 삭제할까요?")) return;
+    await deletePhotoLibraryItem(photoId);
     setData((current) => ({
       ...current,
       photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.id !== photoId),
@@ -106,8 +124,9 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     setPreviewPhoto((current) => (current?.id === photoId ? null : current));
   };
 
-  const deleteAllPhotos = () => {
+  const deleteAllPhotos = async () => {
     if (!confirm("사진 라이브러리의 모든 사진을 삭제할까요?")) return;
+    await clearPhotoLibrary();
     setData((current) => ({
       ...current,
       photoLibrary: [],
@@ -115,9 +134,10 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     setPreviewPhoto(null);
   };
 
-  const deleteSelectedYearPhotos = () => {
+  const deleteSelectedYearPhotos = async () => {
     if (selectedYear === allYears) return;
     if (!confirm(`${selectedYear}년 사진을 전체 삭제할까요?`)) return;
+    await deletePhotoLibraryByYear(selectedYear);
     setData((current) => ({
       ...current,
       photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.year !== selectedYear),
@@ -189,7 +209,7 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
           {uploading ? "사진 올리는 중" : "사진 올리기"}
         </button>
         <p className="text-xs font-bold text-slate-500">
-          사진은 이 브라우저의 localStorage에 저장됩니다. 여러 장을 올릴 수 있고, 연도별로 같이 볼 수 있어요.
+          사진은 용량 문제 때문에 이 기기 브라우저에 따로 저장돼요. 일정이나 정산과 달리 사진은 아직 기기별로 관리됩니다.
         </p>
       </Card>
 

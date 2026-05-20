@@ -3,6 +3,11 @@ import type { Participant, TravelAppData } from "../types";
 
 const STORAGE_KEY = "deu-10th-fukuoka-trip-data";
 
+export const stripPhotoLibraryFromData = (data: TravelAppData): TravelAppData => ({
+  ...data,
+  photoLibrary: [],
+});
+
 const cloneDefaultData = (): TravelAppData => {
   if (typeof structuredClone === "function") {
     return structuredClone(defaultData);
@@ -70,7 +75,7 @@ export const loadTripData = (): TravelAppData => {
 };
 
 export const saveTripData = (data: TravelAppData) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stripPhotoLibraryFromData(data)));
 };
 
 export const clearTripData = () => {
