@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { TravelAppData } from "../types";
 import { loadTripData, stripPhotoLibraryFromData } from "../utils/storage";
-import { loadPhotoLibrary, replacePhotoLibrary } from "../utils/photoStorage";
+import { buildHeaders, getCloudConfig, SYNC_ROOM_ID, SYNC_TABLE } from "../utils/cloudSync";
 
-const SYNC_ROOM_ID = "deu-10th-fukuoka-trip";
-const SYNC_TABLE = "trip_state";
 const SYNC_POLL_MS = 3000;
 const SYNC_DEBOUNCE_MS = 500;
 
@@ -36,32 +34,7 @@ const isTripData = (value: unknown): value is TravelAppData => {
   );
 };
 
-const mergeRemoteDataWithLocalPhotos = (remoteData: TravelAppData, localPhotos: TravelAppData["photoLibrary"]): TravelAppData => ({
-  ...remoteData,
-  photoLibrary: localPhotos,
-});
-
-const getCloudConfig = () => {
-  const url = import.meta.env.VITE_SUPABASE_URL?.trim();
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
-
-  if (!url || !anonKey) {
-    return null;
-  }
-
-  return { url, anonKey };
-};
-
 const serialize = (value: TravelAppData) => JSON.stringify(stripPhotoLibraryFromData(value));
-
-const buildHeaders = (anonKey: string) => ({
-  apikey: anonKey,
-  Authorization: `Bearer ${anonKey}`,
-  "Content-Type": "application/json",
-  Accept: "application/json",
-  "Accept-Profile": "public",
-  "Content-Profile": "public",
-});
 
 const readRemoteRow = async (config: { url: string; anonKey: string }) => {
   const response = await fetch(
@@ -117,35 +90,6 @@ export function useSharedTripData() {
   }, [data]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const indexedPhotos = await loadPhotoLibrary();
-        if (cancelled) return;
-
-        if (indexedPhotos.length > 0) {
-          setData((current) => ({ ...current, photoLibrary: indexedPhotos }));
-          return;
-        }
-
-        const legacyPhotos = dataRef.current.photoLibrary ?? [];
-        if (!legacyPhotos.length) return;
-
-        await replacePhotoLibrary(legacyPhotos);
-        if (cancelled) return;
-        setData((current) => ({ ...current, photoLibrary: legacyPhotos }));
-      } catch (error) {
-        console.warn("Photo library hydration failed:", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const config = getCloudConfig();
@@ -168,7 +112,7 @@ export function useSharedTripData() {
           const remoteSerialized = serialize(remoteRow.payload);
           lastPublishedRef.current = remoteSerialized;
           lastRemoteUpdatedAtRef.current = remoteRow.updated_at;
-          setData((current) => mergeRemoteDataWithLocalPhotos(remoteRow.payload, current.photoLibrary ?? []));
+          setData((current) => ({ ...remoteRow.payload, photoLibrary: current.photoLibrary ?? [] }));
           if ((remoteRow.payload.photoLibrary?.length ?? 0) > 0) {
             void writeRemoteRow(config, remoteRow.payload).catch((cleanupError) => {
               console.warn("Remote photo payload cleanup failed:", cleanupError);
@@ -207,7 +151,7 @@ export function useSharedTripData() {
               }
 
               lastPublishedRef.current = latestSerialized;
-              setData((current) => mergeRemoteDataWithLocalPhotos(latestRow.payload, current.photoLibrary ?? []));
+              setData((current) => ({ ...latestRow.payload, photoLibrary: current.photoLibrary ?? [] }));
               if ((latestRow.payload.photoLibrary?.length ?? 0) > 0) {
                 void writeRemoteRow(config, latestRow.payload).catch((cleanupError) => {
                   console.warn("Remote photo payload cleanup failed:", cleanupError);

@@ -1,5 +1,5 @@
-import { ChangeEvent, Dispatch, SetStateAction, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ImagePlus, Trash2, X } from "lucide-react";
+import { ChangeEvent, Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ImagePlus, RefreshCw, Trash2, X } from "lucide-react";
 import Card from "../../components/Card";
 import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
@@ -10,8 +10,17 @@ import {
   deletePhotoLibraryByYear,
   deletePhotoLibraryItem,
   isQuotaExceededError,
+  loadPhotoLibrary,
   savePhotoLibraryItems,
 } from "../../utils/photoStorage";
+import { getCloudConfig } from "../../utils/cloudSync";
+import {
+  clearSharedPhotos,
+  deleteSharedPhoto,
+  deleteSharedPhotosByYear,
+  listSharedPhotos,
+  uploadSharedPhotos,
+} from "../../utils/sharedPhotoLibrary";
 
 interface MemoriesPageProps {
   data: TravelAppData;
@@ -21,6 +30,7 @@ interface MemoriesPageProps {
 
 const years = Array.from({ length: 11 }, (_, index) => 2016 + index);
 const allYears = "전체";
+const SHARED_POLL_MS = 5000;
 type YearFilter = typeof allYears | number;
 
 const resizeImage = (file: File): Promise<string> =>
@@ -31,7 +41,7 @@ const resizeImage = (file: File): Promise<string> =>
       const image = new Image();
 
       image.onload = () => {
-        const maxSide = 960;
+        const maxSide = 720;
         const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
         const width = Math.max(1, Math.round(image.width * scale));
         const height = Math.max(1, Math.round(image.height * scale));
@@ -46,7 +56,7 @@ const resizeImage = (file: File): Promise<string> =>
         }
 
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.68));
+        resolve(canvas.toDataURL("image/jpeg", 0.6));
       };
 
       image.onerror = () => reject(new Error("지원하지 않는 이미지 형식이에요."));
@@ -57,12 +67,37 @@ const resizeImage = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const getPhotoUploadErrorMessage = (error: unknown) => {
+const getPhotoSignature = (photos: PhotoLibraryItem[]) =>
+  photos
+    .map((photo) => `${photo.id}:${photo.createdAt}:${photo.year}:${photo.fileName}`)
+    .sort()
+    .join("|");
+
+const sortPhotos = (photos: PhotoLibraryItem[]) => photos.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+const dedupePhotos = (photos: PhotoLibraryItem[]) => {
+  const byId = new Map<string, PhotoLibraryItem>();
+  for (const photo of photos) {
+    byId.set(photo.id, photo);
+  }
+
+  return sortPhotos(Array.from(byId.values()));
+};
+
+const getPhotoUploadErrorMessage = (error: unknown, sharedMode: boolean) => {
   if (isQuotaExceededError(error)) {
     return "사진 저장 공간이 가득 찼어요. 기존 사진을 조금 지우고 다시 올려주세요.";
   }
 
-  return error instanceof Error ? error.message : "사진 업로드에 실패했어요.";
+  if (error instanceof Error) {
+    if (sharedMode && /401|403/.test(error.message)) {
+      return "공용 사진 앨범 권한 확인이 필요해요. 잠깐 뒤에 다시 시도해주세요.";
+    }
+
+    return error.message;
+  }
+
+  return sharedMode ? "공용 사진 업로드에 실패했어요." : "사진 업로드에 실패했어요.";
 };
 
 export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProps) {
@@ -72,22 +107,126 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
   const [uploaderId, setUploaderId] = useState(data.participants[0]?.id ?? "");
   const [previewPhoto, setPreviewPhoto] = useState<PhotoLibraryItem | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+
+  const cloudConfig = useMemo(() => getCloudConfig(), []);
+  const sharedMode = Boolean(cloudConfig);
 
   const participantById = useMemo(
     () => new Map(data.participants.map((participant) => [participant.id, participant])),
     [data.participants],
   );
+
   const photos = data.photoLibrary ?? [];
   const visiblePhotos = photos
     .filter((photo) => selectedYear === allYears || photo.year === selectedYear)
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
+  useEffect(() => {
+    if (!uploaderId && data.participants[0]?.id) {
+      setUploaderId(data.participants[0].id);
+    }
+  }, [data.participants, uploaderId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedPhotos = async () => {
+      if (!cloudConfig) return;
+
+      setSyncing(true);
+      try {
+        const remotePhotos = await listSharedPhotos(cloudConfig);
+        if (cancelled) return;
+
+        const legacyLocalPhotos = await loadPhotoLibrary().catch(() => []);
+        if (cancelled) return;
+
+        const remoteIds = new Set(remotePhotos.map((photo) => photo.id));
+        const pendingLegacyPhotos = legacyLocalPhotos.filter((photo) => !remoteIds.has(photo.id));
+
+        if (pendingLegacyPhotos.length > 0) {
+          await uploadSharedPhotos(cloudConfig, pendingLegacyPhotos);
+          await clearPhotoLibrary();
+          if (cancelled) return;
+          setSyncMessage(`예전에 이 기기에만 있던 사진 ${pendingLegacyPhotos.length}장을 공용 앨범으로 옮겼어요.`);
+        }
+
+        const mergedPhotos = dedupePhotos([...remotePhotos, ...pendingLegacyPhotos]);
+        setData((current) => {
+          if (getPhotoSignature(current.photoLibrary ?? []) === getPhotoSignature(mergedPhotos)) {
+            return current;
+          }
+
+          return {
+            ...current,
+            photoLibrary: mergedPhotos,
+          };
+        });
+      } catch (error) {
+        console.warn("Shared photo sync failed:", error);
+        if (!cancelled) {
+          setSyncMessage(error instanceof Error ? error.message : "공용 사진 앨범을 불러오지 못했어요.");
+        }
+      } finally {
+        if (!cancelled) {
+          setSyncing(false);
+        }
+      }
+    };
+
+    const loadLocalPhotos = async () => {
+      setSyncing(true);
+      try {
+        const localPhotos = await loadPhotoLibrary();
+        if (cancelled) return;
+
+        setData((current) => {
+          if (getPhotoSignature(current.photoLibrary ?? []) === getPhotoSignature(localPhotos)) {
+            return current;
+          }
+
+          return {
+            ...current,
+            photoLibrary: localPhotos,
+          };
+        });
+      } catch (error) {
+        console.warn("Local photo sync failed:", error);
+      } finally {
+        if (!cancelled) {
+          setSyncing(false);
+        }
+      }
+    };
+
+    void (sharedMode ? loadSharedPhotos() : loadLocalPhotos());
+
+    if (!sharedMode || !cloudConfig) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const timer = window.setInterval(() => {
+      void loadSharedPhotos();
+    }, SHARED_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [cloudConfig, setData, sharedMode]);
+
   const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
     if (!files.length) return;
 
     setUploading(true);
+    setSyncMessage("");
+
     try {
       const uploadedPhotos = await Promise.all(
         files.map(async (file) => ({
@@ -100,49 +239,105 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
         })),
       );
 
-      await savePhotoLibraryItems(uploadedPhotos);
-
-      setData((current) => ({
-        ...current,
-        photoLibrary: [...uploadedPhotos, ...(current.photoLibrary ?? [])],
-      }));
+      if (cloudConfig) {
+        await uploadSharedPhotos(cloudConfig, uploadedPhotos);
+        setData((current) => ({
+          ...current,
+          photoLibrary: dedupePhotos([...(current.photoLibrary ?? []), ...uploadedPhotos]),
+        }));
+        setSyncMessage(`${uploadedPhotos.length}장 올렸어요. 이제 친구들도 같이 볼 수 있어요.`);
+      } else {
+        await savePhotoLibraryItems(uploadedPhotos);
+        setData((current) => ({
+          ...current,
+          photoLibrary: [...uploadedPhotos, ...(current.photoLibrary ?? [])],
+        }));
+      }
     } catch (error) {
-      alert(getPhotoUploadErrorMessage(error));
+      alert(getPhotoUploadErrorMessage(error, sharedMode));
     } finally {
       setUploading(false);
       event.target.value = "";
     }
   };
 
+  const refreshSharedPhotos = async () => {
+    if (!cloudConfig) return;
+
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const remotePhotos = await listSharedPhotos(cloudConfig);
+      setData((current) => ({
+        ...current,
+        photoLibrary: remotePhotos,
+      }));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "공용 사진 새로고침에 실패했어요.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const deletePhoto = async (photoId: string) => {
     if (!confirm("이 사진을 삭제할까요?")) return;
-    await deletePhotoLibraryItem(photoId);
-    setData((current) => ({
-      ...current,
-      photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.id !== photoId),
-    }));
-    setPreviewPhoto((current) => (current?.id === photoId ? null : current));
+
+    try {
+      if (cloudConfig) {
+        await deleteSharedPhoto(cloudConfig, photoId);
+      } else {
+        await deletePhotoLibraryItem(photoId);
+      }
+
+      setData((current) => ({
+        ...current,
+        photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.id !== photoId),
+      }));
+      setPreviewPhoto((current) => (current?.id === photoId ? null : current));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "사진 삭제에 실패했어요.");
+    }
   };
 
   const deleteAllPhotos = async () => {
     if (!confirm("사진 라이브러리의 모든 사진을 삭제할까요?")) return;
-    await clearPhotoLibrary();
-    setData((current) => ({
-      ...current,
-      photoLibrary: [],
-    }));
-    setPreviewPhoto(null);
+
+    try {
+      if (cloudConfig) {
+        await clearSharedPhotos(cloudConfig);
+      } else {
+        await clearPhotoLibrary();
+      }
+
+      setData((current) => ({
+        ...current,
+        photoLibrary: [],
+      }));
+      setPreviewPhoto(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "전체 삭제에 실패했어요.");
+    }
   };
 
   const deleteSelectedYearPhotos = async () => {
     if (selectedYear === allYears) return;
     if (!confirm(`${selectedYear}년 사진을 전체 삭제할까요?`)) return;
-    await deletePhotoLibraryByYear(selectedYear);
-    setData((current) => ({
-      ...current,
-      photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.year !== selectedYear),
-    }));
-    setPreviewPhoto(null);
+
+    try {
+      if (cloudConfig) {
+        await deleteSharedPhotosByYear(cloudConfig, selectedYear);
+      } else {
+        await deletePhotoLibraryByYear(selectedYear);
+      }
+
+      setData((current) => ({
+        ...current,
+        photoLibrary: (current.photoLibrary ?? []).filter((photo) => photo.year !== selectedYear),
+      }));
+      setPreviewPhoto(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "연도별 삭제에 실패했어요.");
+    }
   };
 
   return (
@@ -155,6 +350,17 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
           <p className="text-sm font-bold text-teal-600">사진/추억</p>
           <h1 className="text-2xl font-black text-slate-900">친구들 사진 라이브러리</h1>
         </div>
+        {sharedMode && (
+          <button
+            type="button"
+            onClick={refreshSharedPhotos}
+            disabled={syncing}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white text-slate-700 shadow-sm disabled:text-slate-300"
+            aria-label="공용 사진 새로고침"
+          >
+            <RefreshCw size={18} className={syncing ? "animate-spin" : ""} />
+          </button>
+        )}
         {photos.length > 0 && (
           <button
             type="button"
@@ -208,9 +414,15 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
           <ImagePlus size={19} />
           {uploading ? "사진 올리는 중" : "사진 올리기"}
         </button>
-        <p className="text-xs font-bold text-slate-500">
-          사진은 용량 문제 때문에 이 기기 브라우저에 따로 저장돼요. 일정이나 정산과 달리 사진은 아직 기기별로 관리됩니다.
-        </p>
+        <div className="rounded-lg bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-600">
+          <p>{sharedMode ? "이제 사진도 공용 앨범으로 올라가서 친구들이 같이 볼 수 있어요." : "지금은 이 기기 브라우저에만 사진이 저장돼요."}</p>
+          <p className="mt-1">
+            {sharedMode
+              ? "용량이 너무 커지지 않게 업로드 전에 자동으로 압축해서 올려요."
+              : "공유 기능을 쓰려면 배포 환경에서 Supabase 연결이 켜져 있어야 해요."}
+          </p>
+          {syncMessage && <p className="mt-2 text-teal-700">{syncMessage}</p>}
+        </div>
       </Card>
 
       <section className="space-y-3">
@@ -281,7 +493,11 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
             })}
           </div>
         ) : (
-          <EmptyState icon="📸" title="아직 올라온 사진이 없어요" description="연도를 고르고 사진을 올리면 여기서 같이 볼 수 있어요." />
+          <EmptyState
+            icon="📸"
+            title="아직 올라온 사진이 없어요"
+            description={sharedMode ? "사진을 올리면 이 연도 앨범을 친구들이 같이 볼 수 있어요." : "연도를 고르고 사진을 올리면 여기서 볼 수 있어요."}
+          />
         )}
       </section>
 
