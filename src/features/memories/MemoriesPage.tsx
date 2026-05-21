@@ -1,5 +1,5 @@
 import { ChangeEvent, Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Download, ImagePlus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, ImagePlus, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import Card from "../../components/Card";
 import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
@@ -90,9 +90,12 @@ const getSafeFileName = (photo: PhotoLibraryItem) => {
   return `${photo.year}-${baseName || "fukuoka-photo"}.jpg`;
 };
 
-const downloadPhotoToDevice = async (photo: PhotoLibraryItem) => {
+const getPhotoBlob = async (photo: PhotoLibraryItem) => {
   const response = await fetch(photo.imageDataUrl);
-  const blob = await response.blob();
+  return await response.blob();
+};
+
+const downloadPhotoToDevice = async (photo: PhotoLibraryItem, blob: Blob) => {
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
@@ -103,6 +106,33 @@ const downloadPhotoToDevice = async (photo: PhotoLibraryItem) => {
   link.remove();
 
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+};
+
+const shareOrDownloadPhotoToDevice = async (photo: PhotoLibraryItem) => {
+  const blob = await getPhotoBlob(photo);
+  const file = new File([blob], getSafeFileName(photo), { type: blob.type || "image/jpeg" });
+  const shareData: ShareData = {
+    title: "후쿠오카 여행 사진",
+    text: "동의대 10주년 후쿠오카 여행 사진",
+    files: [file],
+  };
+
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    const canShareFiles = typeof navigator.canShare !== "function" || navigator.canShare(shareData);
+
+    if (canShareFiles) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+      }
+    }
+  }
+
+  await downloadPhotoToDevice(photo, blob);
 };
 
 const getPhotoUploadErrorMessage = (error: unknown, sharedMode: boolean) => {
@@ -303,11 +333,11 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     }
   };
 
-  const downloadPhoto = async (photo: PhotoLibraryItem) => {
+  const savePhoto = async (photo: PhotoLibraryItem) => {
     try {
-      await downloadPhotoToDevice(photo);
+      await shareOrDownloadPhotoToDevice(photo);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "사진 다운로드에 실패했어요.");
+      alert(error instanceof Error ? error.message : "사진 저장에 실패했어요.");
     }
   };
 
@@ -516,11 +546,11 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
                       <div className="flex shrink-0 gap-1">
                         <button
                           type="button"
-                          onClick={() => downloadPhoto(photo)}
+                          onClick={() => savePhoto(photo)}
                           className="grid h-9 w-9 place-items-center rounded-lg bg-sky-50 text-sky-700"
-                          aria-label="사진 다운로드"
+                          aria-label="사진 저장 또는 공유"
                         >
-                          <Download size={16} />
+                          <Share2 size={16} />
                         </button>
                         <button
                           type="button"
@@ -559,11 +589,11 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
             </div>
             <button
               type="button"
-              onClick={() => downloadPhoto(previewPhoto)}
+              onClick={() => savePhoto(previewPhoto)}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-500 font-black text-white"
             >
-              <Download size={18} />
-              내 앨범에 다운로드
+              <Share2 size={18} />
+              공유해서 저장하기
             </button>
             <button
               type="button"
