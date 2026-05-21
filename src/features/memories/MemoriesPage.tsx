@@ -1,5 +1,5 @@
 import { ChangeEvent, Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ImagePlus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, Download, ImagePlus, RefreshCw, Trash2, X } from "lucide-react";
 import Card from "../../components/Card";
 import EmptyState from "../../components/EmptyState";
 import Modal from "../../components/Modal";
@@ -18,6 +18,7 @@ import {
   clearSharedPhotos,
   deleteSharedPhoto,
   deleteSharedPhotosByYear,
+  listDeletedSharedPhotoIds,
   listSharedPhotos,
   uploadSharedPhotos,
 } from "../../utils/sharedPhotoLibrary";
@@ -84,6 +85,26 @@ const dedupePhotos = (photos: PhotoLibraryItem[]) => {
   return sortPhotos(Array.from(byId.values()));
 };
 
+const getSafeFileName = (photo: PhotoLibraryItem) => {
+  const baseName = photo.fileName.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]+/g, "-").trim();
+  return `${photo.year}-${baseName || "fukuoka-photo"}.jpg`;
+};
+
+const downloadPhotoToDevice = async (photo: PhotoLibraryItem) => {
+  const response = await fetch(photo.imageDataUrl);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = getSafeFileName(photo);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+};
+
 const getPhotoUploadErrorMessage = (error: unknown, sharedMode: boolean) => {
   if (isQuotaExceededError(error)) {
     return "사진 저장 공간이 가득 찼어요. 기존 사진을 조금 지우고 다시 올려주세요.";
@@ -141,11 +162,14 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
         const remotePhotos = await listSharedPhotos(cloudConfig);
         if (cancelled) return;
 
+        const deletedPhotoIds = await listDeletedSharedPhotoIds(cloudConfig);
+        if (cancelled) return;
+
         const legacyLocalPhotos = await loadPhotoLibrary().catch(() => []);
         if (cancelled) return;
 
         const remoteIds = new Set(remotePhotos.map((photo) => photo.id));
-        const pendingLegacyPhotos = legacyLocalPhotos.filter((photo) => !remoteIds.has(photo.id));
+        const pendingLegacyPhotos = legacyLocalPhotos.filter((photo) => !remoteIds.has(photo.id) && !deletedPhotoIds.has(photo.id));
 
         if (pendingLegacyPhotos.length > 0) {
           await uploadSharedPhotos(cloudConfig, pendingLegacyPhotos);
@@ -279,12 +303,21 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     }
   };
 
+  const downloadPhoto = async (photo: PhotoLibraryItem) => {
+    try {
+      await downloadPhotoToDevice(photo);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "사진 다운로드에 실패했어요.");
+    }
+  };
+
   const deletePhoto = async (photoId: string) => {
     if (!confirm("이 사진을 삭제할까요?")) return;
 
     try {
       if (cloudConfig) {
         await deleteSharedPhoto(cloudConfig, photoId);
+        await deletePhotoLibraryItem(photoId).catch(() => undefined);
       } else {
         await deletePhotoLibraryItem(photoId);
       }
@@ -305,6 +338,7 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     try {
       if (cloudConfig) {
         await clearSharedPhotos(cloudConfig);
+        await clearPhotoLibrary().catch(() => undefined);
       } else {
         await clearPhotoLibrary();
       }
@@ -326,6 +360,7 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     try {
       if (cloudConfig) {
         await deleteSharedPhotosByYear(cloudConfig, selectedYear);
+        await deletePhotoLibraryByYear(selectedYear).catch(() => undefined);
       } else {
         await deletePhotoLibraryByYear(selectedYear);
       }
@@ -478,14 +513,24 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
                         <p className="font-black text-slate-900">{photo.year}</p>
                         <p className="truncate text-xs font-bold text-slate-500">{uploader?.name ?? "알 수 없음"}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => deletePhoto(photo.id)}
-                        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"
-                        aria-label="사진 삭제"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => downloadPhoto(photo)}
+                          className="grid h-9 w-9 place-items-center rounded-lg bg-sky-50 text-sky-700"
+                          aria-label="사진 다운로드"
+                        >
+                          <Download size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deletePhoto(photo.id)}
+                          className="grid h-9 w-9 place-items-center rounded-lg bg-rose-50 text-rose-600"
+                          aria-label="사진 삭제"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
@@ -512,6 +557,14 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
               </p>
               <p className="mt-1 break-words text-xs text-slate-400">{previewPhoto.fileName}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => downloadPhoto(previewPhoto)}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-500 font-black text-white"
+            >
+              <Download size={18} />
+              내 앨범에 다운로드
+            </button>
             <button
               type="button"
               onClick={() => setPreviewPhoto(null)}

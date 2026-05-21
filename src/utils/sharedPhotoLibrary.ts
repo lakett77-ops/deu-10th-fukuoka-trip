@@ -3,15 +3,22 @@ import type { CloudConfig } from "./cloudSync";
 import { buildHeaders, SYNC_ROOM_ID, SYNC_TABLE } from "./cloudSync";
 
 const PHOTO_ROW_PREFIX = `${SYNC_ROOM_ID}-photo-`;
+const DELETED_PHOTO_ROW_PREFIX = `${SYNC_ROOM_ID}-deleted-photo-`;
 
 type SharedPhotoPayload = {
   type: "shared_photo";
   photo: PhotoLibraryItem;
 };
 
+type DeletedSharedPhotoPayload = {
+  type: "deleted_shared_photo";
+  photoId: string;
+  deletedAt: string;
+};
+
 type SharedPhotoRow = {
   id: string;
-  payload: SharedPhotoPayload;
+  payload: SharedPhotoPayload | DeletedSharedPhotoPayload;
   updated_at: string;
 };
 
@@ -36,11 +43,46 @@ const isSharedPhotoPayload = (value: unknown): value is SharedPhotoPayload => {
   return candidate.type === "shared_photo" && isPhotoLibraryItem(candidate.photo);
 };
 
+const isDeletedSharedPhotoPayload = (value: unknown): value is DeletedSharedPhotoPayload => {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<DeletedSharedPhotoPayload>;
+  return candidate.type === "deleted_shared_photo" && typeof candidate.photoId === "string";
+};
+
 const buildPhotoRowId = (photoId: string) => `${PHOTO_ROW_PREFIX}${photoId}`;
+const buildDeletedPhotoRowId = (photoId: string) => `${DELETED_PHOTO_ROW_PREFIX}${photoId}`;
 
 const buildQuery = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
+export const listDeletedSharedPhotoIds = async (config: CloudConfig) => {
+  const query = buildQuery({
+    select: "id,payload,updated_at",
+    id: `like.${DELETED_PHOTO_ROW_PREFIX}*`,
+  });
+
+  const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
+    headers: buildHeaders(config.anonKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`공용 사진 삭제 기록을 불러오지 못했어요. (${response.status})`);
+  }
+
+  const rows = (await response.json()) as SharedPhotoRow[];
+  const deletedPhotoIds = new Set<string>();
+
+  for (const row of rows) {
+    if (isDeletedSharedPhotoPayload(row.payload)) {
+      deletedPhotoIds.add(row.payload.photoId);
+    }
+  }
+
+  return deletedPhotoIds;
+};
+
 export const listSharedPhotos = async (config: CloudConfig) => {
+  const deletedPhotoIds = await listDeletedSharedPhotoIds(config);
   const query = buildQuery({
     select: "id,payload,updated_at",
     order: "updated_at.desc",
@@ -56,10 +98,44 @@ export const listSharedPhotos = async (config: CloudConfig) => {
   }
 
   const rows = (await response.json()) as SharedPhotoRow[];
-  return rows
-    .filter((row) => isSharedPhotoPayload(row.payload))
-    .map((row) => row.payload.photo)
+  const photos: PhotoLibraryItem[] = [];
+
+  for (const row of rows) {
+    if (isSharedPhotoPayload(row.payload)) {
+      photos.push(row.payload.photo);
+    }
+  }
+
+  return photos
+    .filter((photo) => !deletedPhotoIds.has(photo.id))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+};
+
+const markSharedPhotosDeleted = async (config: CloudConfig, photoIds: string[]) => {
+  const deletedAt = new Date().toISOString();
+
+  for (const photoId of photoIds) {
+    const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?on_conflict=id`, {
+      method: "POST",
+      headers: {
+        ...buildHeaders(config.anonKey),
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify({
+        id: buildDeletedPhotoRowId(photoId),
+        payload: {
+          type: "deleted_shared_photo",
+          photoId,
+          deletedAt,
+        } satisfies DeletedSharedPhotoPayload,
+        updated_at: deletedAt,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`공용 사진 삭제 기록 저장에 실패했어요. (${response.status})`);
+    }
+  }
 };
 
 export const uploadSharedPhotos = async (config: CloudConfig, photos: PhotoLibraryItem[]) => {
@@ -87,6 +163,8 @@ export const uploadSharedPhotos = async (config: CloudConfig, photos: PhotoLibra
 };
 
 export const deleteSharedPhoto = async (config: CloudConfig, photoId: string) => {
+  await markSharedPhotosDeleted(config, [photoId]);
+
   const query = buildQuery({ id: `eq.${buildPhotoRowId(photoId)}` });
   const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
     method: "DELETE",
@@ -105,15 +183,41 @@ export const deleteSharedPhotosByYear = async (config: CloudConfig, year: number
   const photos = await listSharedPhotos(config);
   const targets = photos.filter((photo) => photo.year === year);
 
+  await markSharedPhotosDeleted(config, targets.map((photo) => photo.id));
+
   for (const photo of targets) {
-    await deleteSharedPhoto(config, photo.id);
+    const query = buildQuery({ id: `eq.${buildPhotoRowId(photo.id)}` });
+    const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
+      method: "DELETE",
+      headers: {
+        ...buildHeaders(config.anonKey),
+        Prefer: "return=minimal",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`공용 사진 삭제에 실패했어요. (${response.status})`);
+    }
   }
 };
 
 export const clearSharedPhotos = async (config: CloudConfig) => {
   const photos = await listSharedPhotos(config);
 
+  await markSharedPhotosDeleted(config, photos.map((photo) => photo.id));
+
   for (const photo of photos) {
-    await deleteSharedPhoto(config, photo.id);
+    const query = buildQuery({ id: `eq.${buildPhotoRowId(photo.id)}` });
+    const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
+      method: "DELETE",
+      headers: {
+        ...buildHeaders(config.anonKey),
+        Prefer: "return=minimal",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`공용 사진 삭제에 실패했어요. (${response.status})`);
+    }
   }
 };
