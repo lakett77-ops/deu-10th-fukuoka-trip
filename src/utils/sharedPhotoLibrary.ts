@@ -4,6 +4,7 @@ import { buildHeaders, SYNC_ROOM_ID, SYNC_TABLE } from "./cloudSync";
 
 const PHOTO_ROW_PREFIX = `${SYNC_ROOM_ID}-photo-`;
 const DELETED_PHOTO_ROW_PREFIX = `${SYNC_ROOM_ID}-deleted-photo-`;
+const PHOTO_PAGE_SIZE = 20;
 
 type SharedPhotoPayload = {
   type: "shared_photo";
@@ -55,21 +56,39 @@ const buildDeletedPhotoRowId = (photoId: string) => `${DELETED_PHOTO_ROW_PREFIX}
 
 const buildQuery = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
-export const listDeletedSharedPhotoIds = async (config: CloudConfig) => {
-  const query = buildQuery({
-    select: "id,payload,updated_at",
-    id: `like.${DELETED_PHOTO_ROW_PREFIX}*`,
-  });
+const listSharedPhotoRowsByPrefix = async (config: CloudConfig, prefix: string) => {
+  const rows: SharedPhotoRow[] = [];
 
-  const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
-    headers: buildHeaders(config.anonKey),
-  });
+  for (let offset = 0; ; offset += PHOTO_PAGE_SIZE) {
+    const query = buildQuery({
+      select: "id,payload,updated_at",
+      id: `like.${prefix}*`,
+      order: "id.asc",
+      limit: String(PHOTO_PAGE_SIZE),
+      offset: String(offset),
+    });
 
-  if (!response.ok) {
-    throw new Error(`공용 사진 삭제 기록을 불러오지 못했어요. (${response.status})`);
+    const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
+      headers: buildHeaders(config.anonKey),
+    });
+
+    if (!response.ok) {
+      throw new Error(`공용 사진 목록을 불러오지 못했어요. (${response.status})`);
+    }
+
+    const page = (await response.json()) as SharedPhotoRow[];
+    rows.push(...page);
+
+    if (page.length < PHOTO_PAGE_SIZE) {
+      break;
+    }
   }
 
-  const rows = (await response.json()) as SharedPhotoRow[];
+  return rows;
+};
+
+export const listDeletedSharedPhotoIds = async (config: CloudConfig) => {
+  const rows = await listSharedPhotoRowsByPrefix(config, DELETED_PHOTO_ROW_PREFIX);
   const deletedPhotoIds = new Set<string>();
 
   for (const row of rows) {
@@ -81,23 +100,9 @@ export const listDeletedSharedPhotoIds = async (config: CloudConfig) => {
   return deletedPhotoIds;
 };
 
-export const listSharedPhotos = async (config: CloudConfig) => {
-  const deletedPhotoIds = await listDeletedSharedPhotoIds(config);
-  const query = buildQuery({
-    select: "id,payload,updated_at",
-    order: "updated_at.desc",
-    id: `like.${PHOTO_ROW_PREFIX}*`,
-  });
-
-  const response = await fetch(`${config.url}/rest/v1/${SYNC_TABLE}?${query}`, {
-    headers: buildHeaders(config.anonKey),
-  });
-
-  if (!response.ok) {
-    throw new Error(`공용 사진 목록을 불러오지 못했어요. (${response.status})`);
-  }
-
-  const rows = (await response.json()) as SharedPhotoRow[];
+export const listSharedPhotos = async (config: CloudConfig, knownDeletedPhotoIds?: Set<string>) => {
+  const deletedPhotoIds = knownDeletedPhotoIds ?? (await listDeletedSharedPhotoIds(config));
+  const rows = await listSharedPhotoRowsByPrefix(config, PHOTO_ROW_PREFIX);
   const photos: PhotoLibraryItem[] = [];
 
   for (const row of rows) {

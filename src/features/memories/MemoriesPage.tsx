@@ -31,7 +31,7 @@ interface MemoriesPageProps {
 
 const years = Array.from({ length: 11 }, (_, index) => 2016 + index);
 const allYears = "전체";
-const SHARED_POLL_MS = 5000;
+const SHARED_POLL_MS = 60000;
 type YearFilter = typeof allYears | number;
 
 const resizeImage = (file: File): Promise<string> =>
@@ -153,6 +153,7 @@ const getPhotoUploadErrorMessage = (error: unknown, sharedMode: boolean) => {
 
 export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sharedSyncInFlightRef = useRef(false);
   const [selectedYear, setSelectedYear] = useState<YearFilter>(allYears);
   const [uploadYear, setUploadYear] = useState(2026);
   const [uploaderId, setUploaderId] = useState(data.participants[0]?.id ?? "");
@@ -186,13 +187,15 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
 
     const loadSharedPhotos = async () => {
       if (!cloudConfig) return;
+      if (sharedSyncInFlightRef.current) return;
 
+      sharedSyncInFlightRef.current = true;
       setSyncing(true);
       try {
-        const remotePhotos = await listSharedPhotos(cloudConfig);
+        const deletedPhotoIds = await listDeletedSharedPhotoIds(cloudConfig);
         if (cancelled) return;
 
-        const deletedPhotoIds = await listDeletedSharedPhotoIds(cloudConfig);
+        const remotePhotos = await listSharedPhotos(cloudConfig, deletedPhotoIds);
         if (cancelled) return;
 
         const legacyLocalPhotos = await loadPhotoLibrary().catch(() => []);
@@ -225,6 +228,7 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
           setSyncMessage(error instanceof Error ? error.message : "공용 사진 앨범을 불러오지 못했어요.");
         }
       } finally {
+        sharedSyncInFlightRef.current = false;
         if (!cancelled) {
           setSyncing(false);
         }
@@ -317,7 +321,9 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
 
   const refreshSharedPhotos = async () => {
     if (!cloudConfig) return;
+    if (sharedSyncInFlightRef.current) return;
 
+    sharedSyncInFlightRef.current = true;
     setSyncing(true);
     setSyncMessage("");
     try {
@@ -329,6 +335,7 @@ export default function MemoriesPage({ data, setData, onBack }: MemoriesPageProp
     } catch (error) {
       alert(error instanceof Error ? error.message : "공용 사진 새로고침에 실패했어요.");
     } finally {
+      sharedSyncInFlightRef.current = false;
       setSyncing(false);
     }
   };
