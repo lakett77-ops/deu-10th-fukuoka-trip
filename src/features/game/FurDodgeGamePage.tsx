@@ -162,24 +162,28 @@ export default function FurDodgeGamePage({ data, setData, onBack }: FurDodgeGame
     };
 
     const spawnFur = (elapsedSeconds: number) => {
-      const difficulty = Math.min(1, elapsedSeconds / 45);
-      fursRef.current.push({
-        id: nextFurIdRef.current,
-        x: 18 + Math.random() * (CANVAS_WIDTH - 36),
-        y: -24,
-        size: 12 + Math.random() * 12,
-        speed: 78 + difficulty * 92 + Math.random() * 72,
-        drift: -28 + Math.random() * 56,
-        spin: Math.random() * Math.PI,
-      });
-      nextFurIdRef.current += 1;
+      const difficulty = Math.min(1, elapsedSeconds / 28);
+      const burstCount = elapsedSeconds > 24 && Math.random() < 0.32 ? 2 : 1;
+
+      for (let index = 0; index < burstCount; index += 1) {
+        fursRef.current.push({
+          id: nextFurIdRef.current,
+          x: 18 + Math.random() * (CANVAS_WIDTH - 36),
+          y: -24 - index * 22,
+          size: 14 + Math.random() * 14,
+          speed: 122 + difficulty * 155 + Math.random() * 92,
+          drift: -44 + Math.random() * 88,
+          spin: Math.random() * Math.PI,
+        });
+        nextFurIdRef.current += 1;
+      }
     };
 
     const tick = (now: number) => {
       const deltaSeconds = Math.min(0.034, (now - lastFrameAtRef.current) / 1000);
       const elapsedSeconds = (now - startedAtRef.current) / 1000;
       const currentScore = Math.floor(elapsedSeconds * 10);
-      const spawnDelay = Math.max(310, 900 - elapsedSeconds * 16);
+      const spawnDelay = Math.max(185, 620 - elapsedSeconds * 14);
 
       lastFrameAtRef.current = now;
       scoreRef.current = currentScore;
