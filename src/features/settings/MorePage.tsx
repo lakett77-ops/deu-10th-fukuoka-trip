@@ -30,8 +30,8 @@ const items = [
   },
   {
     view: "game",
-    title: "털 피하기 게임",
-    description: "하늘에서 내려오는 털 피하고 TOP 3 도전",
+    title: "털 탄막 게임",
+    description: "상급 탄막 피하고 TOP 3 도전",
     Icon: Gamepad2,
     tone: "bg-amber-50 text-amber-700",
   },
