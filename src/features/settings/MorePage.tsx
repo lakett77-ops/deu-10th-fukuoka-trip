@@ -1,4 +1,4 @@
-import { Camera, ChevronRight, Settings, UserRoundCheck, Vote } from "lucide-react";
+import { Camera, ChevronRight, Gamepad2, Settings, UserRoundCheck, Vote } from "lucide-react";
 import Card from "../../components/Card";
 import type { MoreView } from "../../types";
 
@@ -27,6 +27,13 @@ const items = [
     description: "2016년부터 2026년까지 기록",
     Icon: Camera,
     tone: "bg-rose-50 text-rose-700",
+  },
+  {
+    view: "game",
+    title: "털 피하기 게임",
+    description: "하늘에서 내려오는 털 피하고 TOP 3 도전",
+    Icon: Gamepad2,
+    tone: "bg-amber-50 text-amber-700",
   },
   {
     view: "settings",

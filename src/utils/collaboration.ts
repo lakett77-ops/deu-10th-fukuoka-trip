@@ -15,6 +15,7 @@ const SECTION_KEYS = [
   "memberCards",
   "photoLinks",
   "photoLibrary",
+  "gameScores",
 ] as const;
 
 export type TripSectionKey = (typeof SECTION_KEYS)[number];
@@ -54,6 +55,7 @@ export const readTripDataFromSnapshot = (
   memberCards: safeParse(snapshot.memberCards, fallback.memberCards),
   photoLinks: safeParse(snapshot.photoLinks, fallback.photoLinks),
   photoLibrary: safeParse(snapshot.photoLibrary, fallback.photoLibrary),
+  gameScores: safeParse(snapshot.gameScores, fallback.gameScores),
 });
 
 export const snapshotToKey = (snapshot: Partial<Record<TripSectionKey, string>>) =>

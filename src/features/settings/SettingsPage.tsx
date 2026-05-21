@@ -62,6 +62,7 @@ export default function SettingsPage({ data, setData, onBack }: SettingsPageProp
       memberCards: [],
       photoLinks: [],
       photoLibrary: [],
+      gameScores: [],
     };
     clearTripData();
     setData(blankData);

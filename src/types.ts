@@ -185,6 +185,14 @@ export interface PhotoLibraryItem {
   createdAt: string;
 }
 
+export interface GameScore {
+  id: string;
+  playerName: string;
+  score: number;
+  survivedSeconds: number;
+  createdAt: string;
+}
+
 export interface TravelAppData {
   settings: TripSettings;
   participants: Participant[];
@@ -198,7 +206,8 @@ export interface TravelAppData {
   memberCards: MemberCard[];
   photoLinks: PhotoLink[];
   photoLibrary: PhotoLibraryItem[];
+  gameScores: GameScore[];
 }
 
 export type MainTab = "home" | "schedule" | "settlement" | "checklist" | "more";
-export type MoreView = "menu" | "participants" | "vote" | "memories" | "settings";
+export type MoreView = "menu" | "participants" | "vote" | "memories" | "game" | "settings";

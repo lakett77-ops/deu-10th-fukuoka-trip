@@ -7,6 +7,7 @@ import type {
   ParticipantMessage,
   PhotoLink,
   PhotoLibraryItem,
+  GameScore,
   PreflightCheckItem,
   ScheduleItem,
   TravelAppData,
@@ -444,6 +445,7 @@ export const defaultPhotoLinks: PhotoLink[] = [
 ];
 
 export const defaultPhotoLibrary: PhotoLibraryItem[] = [];
+export const defaultGameScores: GameScore[] = [];
 
 export const defaultData: TravelAppData = {
   settings: {
@@ -468,4 +470,5 @@ export const defaultData: TravelAppData = {
   memberCards: defaultMemberCards,
   photoLinks: defaultPhotoLinks,
   photoLibrary: defaultPhotoLibrary,
+  gameScores: defaultGameScores,
 };

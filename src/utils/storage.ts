@@ -58,6 +58,7 @@ const mergeWithDefaults = (stored: Partial<TravelAppData>): TravelAppData => {
     memberCards: stored.memberCards ?? defaults.memberCards,
     photoLinks: stored.photoLinks ?? defaults.photoLinks,
     photoLibrary: stored.photoLibrary ?? defaults.photoLibrary,
+    gameScores: stored.gameScores ?? defaults.gameScores,
   };
 };
 

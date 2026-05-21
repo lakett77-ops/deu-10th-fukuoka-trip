@@ -36,6 +36,12 @@ const isTripData = (value: unknown): value is TravelAppData => {
 
 const serialize = (value: TravelAppData) => JSON.stringify(stripPhotoLibraryFromData(value));
 
+const mergeRemoteData = (remoteData: TravelAppData, currentData: TravelAppData): TravelAppData => ({
+  ...remoteData,
+  photoLibrary: currentData.photoLibrary ?? [],
+  gameScores: remoteData.gameScores ?? currentData.gameScores ?? [],
+});
+
 const readRemoteRow = async (config: { url: string; anonKey: string }) => {
   const response = await fetch(
     `${config.url}/rest/v1/${SYNC_TABLE}?id=eq.${SYNC_ROOM_ID}&select=id,payload,updated_at`,
@@ -112,7 +118,7 @@ export function useSharedTripData() {
           const remoteSerialized = serialize(remoteRow.payload);
           lastPublishedRef.current = remoteSerialized;
           lastRemoteUpdatedAtRef.current = remoteRow.updated_at;
-          setData((current) => ({ ...remoteRow.payload, photoLibrary: current.photoLibrary ?? [] }));
+          setData((current) => mergeRemoteData(remoteRow.payload, current));
           if ((remoteRow.payload.photoLibrary?.length ?? 0) > 0) {
             void writeRemoteRow(config, remoteRow.payload).catch((cleanupError) => {
               console.warn("Remote photo payload cleanup failed:", cleanupError);
@@ -151,7 +157,7 @@ export function useSharedTripData() {
               }
 
               lastPublishedRef.current = latestSerialized;
-              setData((current) => ({ ...latestRow.payload, photoLibrary: current.photoLibrary ?? [] }));
+              setData((current) => mergeRemoteData(latestRow.payload, current));
               if ((latestRow.payload.photoLibrary?.length ?? 0) > 0) {
                 void writeRemoteRow(config, latestRow.payload).catch((cleanupError) => {
                   console.warn("Remote photo payload cleanup failed:", cleanupError);

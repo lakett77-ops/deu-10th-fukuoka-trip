@@ -7,6 +7,7 @@ import ChecklistPage from "./features/checklist/ChecklistPage";
 import ParticipantsPage from "./features/participants/ParticipantsPage";
 import VotePage from "./features/vote/VotePage";
 import MemoriesPage from "./features/memories/MemoriesPage";
+import FurDodgeGamePage from "./features/game/FurDodgeGamePage";
 import SettingsPage from "./features/settings/SettingsPage";
 import MorePage from "./features/settings/MorePage";
 import type { MainTab, MoreView } from "./types";
@@ -42,6 +43,9 @@ export default function App() {
     }
     if (moreView === "memories") {
       return <MemoriesPage data={data} setData={setData} onBack={() => setMoreView("menu")} />;
+    }
+    if (moreView === "game") {
+      return <FurDodgeGamePage data={data} setData={setData} onBack={() => setMoreView("menu")} />;
     }
     if (moreView === "settings") {
       return <SettingsPage data={data} setData={setData} onBack={() => setMoreView("menu")} />;
